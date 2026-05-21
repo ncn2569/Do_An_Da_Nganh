@@ -51,6 +51,9 @@ export const api = {
   // Users
   getUsers: () => apiClient.get('/users'),
   getUser: (id: string) => apiClient.get(`/users/${id}`),
+
+   getGlobalDeviceHistory: (params?: Record<string, any>) => 
+    apiClient.get('/devices/history/all', { params })
 };
 
 export default apiClient;

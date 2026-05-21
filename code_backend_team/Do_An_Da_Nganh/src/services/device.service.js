@@ -171,6 +171,21 @@ async function controlDevice({ deviceId, action, payload, actor }) {
       }
     }).catch(() => null);
   }
+  
+  const broadcast = getBroadcast();
+  if (broadcast) {
+    broadcast({ 
+      type: "DEVICE_ACTION", 
+      data: {
+        id: Math.random().toString(), // ID tạm thời để UI render
+        deviceName: device?.d_name || deviceId,
+        action: action,
+        userName: actor?.email || "Ai đó",
+        timestamp: new Date().toISOString()
+      } 
+    });
+  }
+
 
   return {
     ok: true,

@@ -77,4 +77,16 @@ async function faceAccessWebhook(req, res, next) {
   }
 }
 
-module.exports = { list, update, control, controlHistory, faceAccessWebhook };
+async function globalControlHistory(req, res, next) {
+  try {
+    const limit = req.query.limit || 50;
+    // Gọi service lấy lịch sử nhưng không truyền deviceId (sẽ lấy tất cả)
+    const history = await deviceService.getControlHistory({ limit });
+    res.json({ count: history.length, data: history });
+  } catch (err) {
+    next(err);
+  }
+}
+
+
+module.exports = { list, update, control, controlHistory, faceAccessWebhook, globalControlHistory };

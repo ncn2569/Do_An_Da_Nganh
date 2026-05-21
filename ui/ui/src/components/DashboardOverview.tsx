@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import {
   Lightbulb,
   RefreshCw,
   Thermometer,
   Shield,
   Zap,
+  AlertTriangle,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
@@ -42,6 +43,15 @@ interface TrendPoint {
   value: number;
 }
 
+// Interface mới cho lịch sử thiết bị
+interface DeviceHistoryAction {
+  id: string;
+  deviceName: string;
+  action: string;
+  userName: string;
+  timestamp: string;
+}
+
 type RangeOption = '1d' | '3d' | '1w' | '1m';
 
 const rangeOptions: { key: RangeOption; label: string; days: number; limit: number }[] = [
@@ -55,26 +65,17 @@ function formatMetric(metric?: SnapshotMetric | null, suffix = '', digits = 1) {
   if (typeof metric?.value !== 'number') {
     return 'N/A';
   }
-
   return `${metric.value.toFixed(digits)}${suffix}`;
 }
 
 function formatDayLabel(value: string) {
   const date = new Date(value);
-
-  return date.toLocaleDateString([], {
-    day: '2-digit',
-    month: '2-digit',
-  });
+  return date.toLocaleDateString([], { day: '2-digit', month: '2-digit' });
 }
 
 function formatShortTimeLabel(value: string) {
   const date = new Date(value);
-
-  return date.toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 function formatRangeLabel(value: string, range: RangeOption) {
@@ -98,11 +99,9 @@ function buildMetricTrend(
   if (range === '1w' || range === '1m') {
     const buckets = validReadings.reduce((acc: Record<string, { sum: number; count: number; ts: string }>, item) => {
       const bucketKey = new Date(item.time_created).toISOString().slice(0, 10);
-
       if (!acc[bucketKey]) {
         acc[bucketKey] = { sum: 0, count: 0, ts: item.time_created };
       }
-
       acc[bucketKey].sum += item[metric] as number;
       acc[bucketKey].count += 1;
       return acc;
@@ -122,15 +121,11 @@ function buildMetricTrend(
 
 function buildAdaptiveDomain(
   data: TrendPoint[],
-  options?: {
-    minSpan?: number;
-    paddingRatio?: number;
-  },
+  options?: { minSpan?: number; paddingRatio?: number },
 ): [number, number] | ['auto', 'auto'] {
   if (data.length === 0) {
     return ['auto', 'auto'];
   }
-
   const values = data.map((item) => item.value);
   const minValue = Math.min(...values);
   const maxValue = Math.max(...values);
@@ -164,12 +159,17 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // State mới cho Lịch sử điều khiển
+  const [controlHistory, setControlHistory] = useState<DeviceHistoryAction[]>([]);
+  const wsRef = useRef<WebSocket | null>(null);
+
   const fetchData = useCallback(async () => {
     try {
       setIsRefreshing(true);
       const rangeConfig = getRangeConfig(selectedRange);
       const from = buildFromDate(selectedRange);
       const to = new Date().toISOString();
+      
       const [snapshotResponse, historyResponse] = await Promise.all([
         api.getEnvironmentSnapshot(),
         api.getEnvironmentHistory({ limit: rangeConfig.limit, from, to }),
@@ -177,11 +177,13 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
 
       setSnapshot(snapshotResponse.data?.data || null);
       setHistory((historyResponse.data?.data || []).slice().reverse());
-      setLastUpdatedAt(new Date().toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      }));
+      setLastUpdatedAt(
+        new Date().toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        })
+      );
     } catch (error) {
       console.error('Failed to fetch environment data:', error);
     } finally {
@@ -189,21 +191,69 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
     }
   }, [selectedRange]);
 
+  // Hook lấy dữ liệu lịch sử thiết bị lần đầu
+  useEffect(() => {
+    const fetchDeviceHistory = async () => {
+      try {
+        // Cần đảm bảo hàm getGlobalDeviceHistory đã được khai báo ở src/services/api.ts
+        // Nếu API backend chưa sẵn sàng, đoạn mã này có thể lỗi, bạn cứ catch lỗi ở dưới
+        const res = await (api as any).getGlobalDeviceHistory?.({ limit: 10 });
+        if (res?.data?.data) {
+          const formattedHistory = res.data.data.map((item: any) => ({
+            id: item.id || Math.random().toString(),
+            deviceName: item.devices?.d_name || item.device_id,
+            action: item.event?.action || 'UNKNOWN',
+            userName: item.users?.username || item.users?.email || 'Hệ thống',
+            timestamp: item.time,
+          }));
+          setControlHistory(formattedHistory);
+        }
+      } catch (error) {
+        console.error("Chưa gọi được API lịch sử (Có thể backend chưa hỗ trợ):", error);
+      }
+    };
+    fetchDeviceHistory();
+  }, []);
+
+  // Hook lắng nghe WebSocket để cập nhật danh sách Real-time
+  useEffect(() => {
+    const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
+    wsRef.current = new WebSocket(WS_URL);
+
+    wsRef.current.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        if (message.type === 'DEVICE_ACTION') {
+          const newAction = message.data;
+          setControlHistory((prev) => [newAction, ...prev].slice(0, 10)); // Luôn giữ 10 dòng gần nhất
+        }
+      } catch (error) {
+        console.error("Lỗi xử lý WS message", error);
+      }
+    };
+
+    return () => {
+      if (wsRef.current) wsRef.current.close();
+    };
+  }, []);
+
   useEffect(() => {
     fetchData();
     const intervalId = window.setInterval(fetchData, 30000);
-
     return () => {
       window.clearInterval(intervalId);
     };
   }, [fetchData, refreshKey]);
+
+  const currentTemp = snapshot?.temperature?.value;
+  const isTempWarning = currentTemp !== undefined && currentTemp !== null && currentTemp > 40;
 
   const quickStats = [
     {
       label: 'Temperature',
       value: formatMetric(snapshot?.temperature, '°C'),
       icon: Thermometer,
-      color: 'text-[#0033CC]',
+      color: isTempWarning ? 'text-red-500' : 'text-[#0033CC]',
     },
     {
       label: 'Humidity',
@@ -233,6 +283,7 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
   const humidityDomain = buildAdaptiveDomain(humidityTrendData, { minSpan: 4, paddingRatio: 0.18 });
   const gasDomain = buildAdaptiveDomain(gasTrendData, { minSpan: 20, paddingRatio: 0.15 });
   const lightDomain = buildAdaptiveDomain(lightTrendData, { minSpan: 30, paddingRatio: 0.15 });
+  
   const trendDescription = selectedRange === '1w' || selectedRange === '1m'
     ? 'Daily averages in the selected range.'
     : 'All valid samples in the selected range.';
@@ -277,16 +328,29 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
         </div>
       </div>
 
+      {/* CẢNH BÁO NHIỆT ĐỘ */}
+      {isTempWarning && (
+        <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-md shadow-sm flex items-start gap-3 animate-in slide-in-from-top-4 fade-in duration-300">
+          <AlertTriangle className="w-6 h-6 text-red-500 flex-shrink-0" />
+          <div>
+            <h3 className="text-red-800 font-bold">Cảnh báo nhiệt độ cao!</h3>
+            <p className="text-red-700 text-sm">
+              Nhiệt độ hiện tại đang là <b>{currentTemp}°C</b>, vượt quá mức an toàn. Vui lòng kiểm tra ngay!
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
         {quickStats.map((stat) => {
           const Icon = stat.icon;
           return (
-            <Card key={stat.label} className="cursor-pointer border-2 border-slate-300 transition-colors hover:bg-slate-50">
+            <Card key={stat.label} className={`cursor-pointer border-2 border-slate-300 transition-colors ${stat.label === 'Temperature' && isTempWarning ? 'bg-red-50 border-red-300' : 'hover:bg-slate-50'}`}>
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="mb-1 text-sm text-muted-foreground">{stat.label}</p>
-                    <p className="text-2xl font-semibold">{stat.value}</p>
+                    <p className={`mb-1 text-sm ${stat.label === 'Temperature' && isTempWarning ? 'text-red-600 font-medium' : 'text-muted-foreground'}`}>{stat.label}</p>
+                    <p className={`text-2xl font-semibold ${stat.label === 'Temperature' && isTempWarning ? 'text-red-700' : ''}`}>{stat.value}</p>
                   </div>
                   <Icon className={`h-8 w-8 ${stat.color}`} />
                 </div>
@@ -397,6 +461,45 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
           </CardContent>
         </Card>
       </div>
+
+      {/* DANH SÁCH LỊCH SỬ THIẾT BỊ REAL-TIME */}
+      <Card className="border-2 border-slate-300">
+        <CardHeader>
+          <CardTitle>Hoạt động trực tiếp</CardTitle>
+          <p className="text-sm text-muted-foreground">Lịch sử tương tác với thiết bị.</p>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {controlHistory.length === 0 ? (
+              <p className="text-sm text-slate-500 text-center py-4">Chưa có hoạt động nào.</p>
+            ) : (
+              controlHistory.map((item, index) => {
+                const isOn = ['on', 'turn_on', 'ON'].includes(String(item.action).toUpperCase());
+                return (
+                  <div key={item.id + index} className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0 animate-in slide-in-from-top-2 fade-in duration-300">
+                    <div className="flex items-center gap-3">
+                      <div className={`p-2 rounded-full ${isOn ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-600'}`}>
+                        <Lightbulb className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-slate-900">
+                          <b>{item.userName}</b> vừa 
+                          <span className={isOn ? 'text-green-600 font-bold ml-1' : 'text-slate-500 font-bold ml-1'}>
+                            {isOn ? 'BẬT' : 'TẮT'}
+                          </span> thiết bị <b>{item.deviceName}</b>
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {new Date(item.timestamp).toLocaleTimeString('vi-VN')} - {new Date(item.timestamp).toLocaleDateString('vi-VN')}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

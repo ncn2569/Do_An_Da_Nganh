@@ -2,6 +2,8 @@
 
 require("dotenv").config();
 const http = require("http");
+const fs = require("fs");
+const path = require("path");
 const { spawn } = require("child_process");
 
 const app = require("./src/app");
@@ -28,11 +30,11 @@ function startAiServerIfEnabled() {
 
   logger.info("Starting AI FastAPI server...");
 
-  const isWindows = process.platform === "win32";
-  const command = isWindows ? "cmd" : "uvicorn";
-  const args = isWindows
-    ? ["/c", "uvicorn server:app --host 0.0.0.0 --port 8000"]
-    : ["server:app", "--host", "0.0.0.0", "--port", "8000"];
+  const preferredPython = path.resolve(__dirname, "ai_sever", "venv", "Scripts", "python.exe");
+  const fallbackPython = path.resolve(__dirname, "..", "..", ".venv", "Scripts", "python.exe");
+  const pythonExecutable = fs.existsSync(preferredPython) ? preferredPython : fallbackPython;
+  const command = pythonExecutable;
+  const args = ["-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"];
 
   const child = spawn(command, args, {
     cwd: "./ai_sever",

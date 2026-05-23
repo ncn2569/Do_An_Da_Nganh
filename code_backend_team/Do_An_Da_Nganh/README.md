@@ -271,7 +271,7 @@ Base URL: `http://localhost:3001/api`
 #### Dữ liệu theo phòng
 
 - Method: `GET`
-- URL: `http://localhost:3001/api/environment/rooms/latest`
+- URL: `http://localhost:3001/api/environment/rooms`
 - Header: `Authorization: Bearer <ACCESS_TOKEN>`
 
 ### Alert & Threshold (Cảnh báo)

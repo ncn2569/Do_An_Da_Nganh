@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Shield,
   Unlock,
@@ -21,8 +21,6 @@ export function AccessSecurity({ role }: AccessSecurityProps) {
   const [isLocked, setIsLocked] = useState(true);
   const [dynamicLog, setDynamicLog] = useState<Array<{ name: string; time: string; status: string; type: string }>>([]);
   const [isCameraOn, setIsCameraOn] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [stream, setStream] = useState<MediaStream | null>(null);
   const [detectedFace, setDetectedFace] = useState<{ name: string; confidence: number } | null>(null);
 
   const startCamera = async () => {
@@ -31,7 +29,8 @@ export function AccessSecurity({ role }: AccessSecurityProps) {
         video: true,
         audio: false,
       });
-      setStream(mediaStream);
+      // Release webcam immediately so Python backend can open the laptop camera.
+      mediaStream.getTracks().forEach((track) => track.stop());
       setIsCameraOn(true);
     } catch (error) {
       console.error('Lỗi khi truy cập camera:', error);
@@ -40,24 +39,9 @@ export function AccessSecurity({ role }: AccessSecurityProps) {
   };
 
   const stopCamera = () => {
-    // if (stream) {
-    //   stream.getTracks().forEach((track) => track.stop());
-    //   setStream(null);
-    // }
-    // if (videoRef.current) {
-    //   videoRef.current.srcObject = null;
-    // }
     setIsCameraOn(false);
     setDetectedFace(null);
   };
-
-  useEffect(() => {
-    return () => {
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
-    };
-  }, [stream]);
 
   useEffect(() => {
     const ws = new WebSocket('ws://localhost:3001');

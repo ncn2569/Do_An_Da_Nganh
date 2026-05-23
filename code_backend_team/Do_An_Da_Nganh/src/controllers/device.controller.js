@@ -80,8 +80,20 @@ async function faceAccessWebhook(req, res, next) {
 async function globalControlHistory(req, res, next) {
   try {
     const limit = req.query.limit || 50;
-    // Gọi service lấy lịch sử nhưng không truyền deviceId (sẽ lấy tất cả)
-    const history = await deviceService.getControlHistory({ limit });
+    const deviceId = req.query.deviceId || null;
+    const userId = req.query.userId || null;
+    const roomId = req.query.roomId || null;
+    const from = req.query.from ? new Date(req.query.from) : null;
+    const to = req.query.to ? new Date(req.query.to) : null;
+
+    const history = await deviceService.getControlHistory({
+      limit,
+      deviceId,
+      userId,
+      roomId,
+      from: from && !isNaN(from) ? from : null,
+      to: to && !isNaN(to) ? to : null
+    });
     res.json({ count: history.length, data: history });
   } catch (err) {
     next(err);

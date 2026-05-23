@@ -10,6 +10,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { api } from '../services/api';
 
@@ -43,10 +44,15 @@ interface TrendPoint {
   value: number;
 }
 
-// Interface mới cho lịch sử thiết bị
+// Device history model for the realtime activity feed
 interface DeviceHistoryAction {
   id: string;
+  deviceId: string | null;
   deviceName: string;
+  deviceType: string | null;
+  roomId: string | null;
+  roomName: string | null;
+  userId: string | null;
   action: string;
   userName: string;
   timestamp: string;
@@ -156,12 +162,46 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
   const [history, setHistory] = useState<EnvironmentReading[]>([]);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
   const [selectedRange, setSelectedRange] = useState<RangeOption>('1d');
+  const [selectedHistoryRange, setSelectedHistoryRange] = useState<RangeOption>('1d');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // State mới cho Lịch sử điều khiển
+  // State for the realtime device history feed
   const [controlHistory, setControlHistory] = useState<DeviceHistoryAction[]>([]);
+  const [allControlHistory, setAllControlHistory] = useState<DeviceHistoryAction[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<string>('all');
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('all');
+  const [selectedRoomId, setSelectedRoomId] = useState<string>('all');
   const wsRef = useRef<WebSocket | null>(null);
+  const filtersRef = useRef({ userId: 'all', deviceId: 'all', roomId: 'all' });
+
+  const normalizeHistoryItem = useCallback((item: any): DeviceHistoryAction => ({
+    id: item.id || item.c_id || Math.random().toString(),
+    deviceId: item.devices?.device_id || item.deviceId || item.device_id || null,
+    deviceName: item.devices?.d_name || item.deviceName || item.device_id || 'Device',
+    deviceType: item.devices?.type || item.deviceType || null,
+    roomId: item.devices?.r_id || item.roomId || item.devices?.rooms?.r_id || null,
+    roomName: item.devices?.rooms?.name || item.roomName || null,
+    userId: item.users?.u_id || item.userId || item.u_id || null,
+    action: item.event?.action || item.action || 'UNKNOWN',
+    userName: item.users?.username || item.userName || item.users?.email || 'Hệ thống',
+    timestamp: item.time || item.timestamp || new Date().toISOString(),
+  }), []);
+
+  const buildHistoryParams = useCallback(() => {
+    const params: Record<string, any> = { limit: 100 };
+    const from = buildFromDate(selectedHistoryRange);
+    const to = new Date().toISOString();
+
+    params.from = from;
+    params.to = to;
+
+    if (selectedUserId !== 'all') params.userId = selectedUserId;
+    if (selectedDeviceId !== 'all') params.deviceId = selectedDeviceId;
+    if (selectedRoomId !== 'all') params.roomId = selectedRoomId;
+
+    return params;
+  }, [selectedDeviceId, selectedHistoryRange, selectedRoomId, selectedUserId]);
 
   const fetchData = useCallback(async () => {
     try {
@@ -191,31 +231,39 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
     }
   }, [selectedRange]);
 
-  // Hook lấy dữ liệu lịch sử thiết bị lần đầu
+  // Load device history from the backend using the current filters
   useEffect(() => {
     const fetchDeviceHistory = async () => {
       try {
-        // Cần đảm bảo hàm getGlobalDeviceHistory đã được khai báo ở src/services/api.ts
-        // Nếu API backend chưa sẵn sàng, đoạn mã này có thể lỗi, bạn cứ catch lỗi ở dưới
-        const res = await (api as any).getGlobalDeviceHistory?.({ limit: 10 });
+        const res = await api.getGlobalDeviceHistory(buildHistoryParams());
         if (res?.data?.data) {
-          const formattedHistory = res.data.data.map((item: any) => ({
-            id: item.id || Math.random().toString(),
-            deviceName: item.devices?.d_name || item.device_id,
-            action: item.event?.action || 'UNKNOWN',
-            userName: item.users?.username || item.users?.email || 'Hệ thống',
-            timestamp: item.time,
-          }));
+          const formattedHistory = res.data.data.map(normalizeHistoryItem);
           setControlHistory(formattedHistory);
         }
       } catch (error) {
-        console.error("Chưa gọi được API lịch sử (Có thể backend chưa hỗ trợ):", error);
+        console.error('Failed to load device history (the backend may not support it yet):', error);
       }
     };
     fetchDeviceHistory();
-  }, []);
+  }, [buildHistoryParams, normalizeHistoryItem, refreshKey]);
 
-  // Hook lắng nghe WebSocket để cập nhật danh sách Real-time
+  // Load an unfiltered copy to build select options
+  useEffect(() => {
+    const fetchAllDeviceHistory = async () => {
+      try {
+        const res = await api.getGlobalDeviceHistory({ limit: 100 });
+        if (res?.data?.data) {
+          setAllControlHistory(res.data.data.map(normalizeHistoryItem));
+        }
+      } catch (error) {
+        console.error('Failed to load the full device history:', error);
+      }
+    };
+
+    fetchAllDeviceHistory();
+  }, [normalizeHistoryItem]);
+
+  // Listen to websocket updates and keep the feed realtime
   useEffect(() => {
     const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
     wsRef.current = new WebSocket(WS_URL);
@@ -224,11 +272,20 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
       try {
         const message = JSON.parse(event.data);
         if (message.type === 'DEVICE_ACTION') {
-          const newAction = message.data;
-          setControlHistory((prev) => [newAction, ...prev].slice(0, 10)); // Luôn giữ 10 dòng gần nhất
+          const newAction = normalizeHistoryItem(message.data);
+          setAllControlHistory((prev) => [newAction, ...prev].slice(0, 100));
+
+          const currentFilters = filtersRef.current;
+          const matchUser = currentFilters.userId === 'all' || newAction.userId === currentFilters.userId;
+          const matchDevice = currentFilters.deviceId === 'all' || newAction.deviceId === currentFilters.deviceId;
+          const matchRoom = currentFilters.roomId === 'all' || newAction.roomId === currentFilters.roomId;
+
+          if (matchUser && matchDevice && matchRoom) {
+            setControlHistory((prev) => [newAction, ...prev].slice(0, 100));
+          }
         }
       } catch (error) {
-        console.error("Lỗi xử lý WS message", error);
+        console.error('Failed to process websocket message', error);
       }
     };
 
@@ -283,6 +340,52 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
   const humidityDomain = buildAdaptiveDomain(humidityTrendData, { minSpan: 4, paddingRatio: 0.18 });
   const gasDomain = buildAdaptiveDomain(gasTrendData, { minSpan: 20, paddingRatio: 0.15 });
   const lightDomain = buildAdaptiveDomain(lightTrendData, { minSpan: 30, paddingRatio: 0.15 });
+
+  const userOptions = useMemo(() => {
+    const map = new Map<string, string>();
+
+    allControlHistory.forEach((item) => {
+      if (item.userId) {
+        map.set(item.userId, item.userName || item.userId);
+      }
+    });
+
+    return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
+  }, [allControlHistory]);
+
+  const deviceOptions = useMemo(() => {
+    const map = new Map<string, string>();
+
+    allControlHistory.forEach((item) => {
+      if (item.deviceId) {
+        map.set(item.deviceId, item.deviceName || item.deviceId);
+      }
+    });
+
+    return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
+  }, [allControlHistory]);
+
+  const roomOptions = useMemo(() => {
+    const map = new Map<string, string>();
+
+    allControlHistory.forEach((item) => {
+      if (item.roomId) {
+        map.set(item.roomId, item.roomName || item.roomId);
+      }
+    });
+
+    return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
+  }, [allControlHistory]);
+
+  const hasActiveFilters = selectedUserId !== 'all' || selectedDeviceId !== 'all' || selectedRoomId !== 'all';
+
+  useEffect(() => {
+    filtersRef.current = {
+      userId: selectedUserId,
+      deviceId: selectedDeviceId,
+      roomId: selectedRoomId,
+    };
+  }, [selectedUserId, selectedDeviceId, selectedRoomId]);
   
   const trendDescription = selectedRange === '1w' || selectedRange === '1m'
     ? 'Daily averages in the selected range.'
@@ -328,14 +431,14 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
         </div>
       </div>
 
-      {/* CẢNH BÁO NHIỆT ĐỘ */}
+      {/* Temperature warning */}
       {isTempWarning && (
         <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-md shadow-sm flex items-start gap-3 animate-in slide-in-from-top-4 fade-in duration-300">
           <AlertTriangle className="w-6 h-6 text-red-500 flex-shrink-0" />
           <div>
-            <h3 className="text-red-800 font-bold">Cảnh báo nhiệt độ cao!</h3>
+            <h3 className="text-red-800 font-bold">High temperature warning!</h3>
             <p className="text-red-700 text-sm">
-              Nhiệt độ hiện tại đang là <b>{currentTemp}°C</b>, vượt quá mức an toàn. Vui lòng kiểm tra ngay!
+              The current temperature is <b>{currentTemp}°C</b>, which is above the safe threshold. Please check it now.
             </p>
           </div>
         </div>
@@ -462,16 +565,84 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
         </Card>
       </div>
 
-      {/* DANH SÁCH LỊCH SỬ THIẾT BỊ REAL-TIME */}
+      {/* Realtime device activity feed */}
       <Card className="border-2 border-slate-300">
         <CardHeader>
-          <CardTitle>Hoạt động trực tiếp</CardTitle>
-          <p className="text-sm text-muted-foreground">Lịch sử tương tác với thiết bị.</p>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <CardTitle>Live activity</CardTitle>
+              <p className="text-sm text-muted-foreground">Recent interactions with devices.</p>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+              <div className="flex flex-wrap gap-2">
+                {rangeOptions.map((option) => (
+                  <Button
+                    key={option.key}
+                    type="button"
+                    variant={selectedHistoryRange === option.key ? 'default' : 'outline'}
+                    className={selectedHistoryRange === option.key ? 'bg-[#0033CC] hover:bg-[#0029a3]' : ''}
+                    onClick={() => setSelectedHistoryRange(option.key)}
+                  >
+                    {option.label}
+                  </Button>
+                ))}
+              </div>
+
+              <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+                <SelectTrigger className="w-full sm:w-[220px]">
+                  <SelectValue placeholder="Filter by user" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All users</SelectItem>
+                  {userOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={selectedDeviceId} onValueChange={setSelectedDeviceId}>
+                <SelectTrigger className="w-full sm:w-[220px]">
+                  <SelectValue placeholder="Filter by device" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All devices</SelectItem>
+                  {deviceOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={selectedRoomId} onValueChange={setSelectedRoomId}>
+                <SelectTrigger className="w-full sm:w-[220px]">
+                  <SelectValue placeholder="Filter by room" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All rooms</SelectItem>
+                  {roomOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setSelectedUserId('all');
+                  setSelectedDeviceId('all');
+                  setSelectedRoomId('all');
+                }}
+                disabled={!hasActiveFilters}
+              >
+                Clear filters
+              </Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
             {controlHistory.length === 0 ? (
-              <p className="text-sm text-slate-500 text-center py-4">Chưa có hoạt động nào.</p>
+              <p className="text-sm text-slate-500 text-center py-4">No activity yet.</p>
             ) : (
               controlHistory.map((item, index) => {
                 const isOn = ['on', 'turn_on', 'ON'].includes(String(item.action).toUpperCase());
@@ -483,13 +654,16 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
                       </div>
                       <div>
                         <p className="text-sm font-medium text-slate-900">
-                          <b>{item.userName}</b> vừa 
+                          <b>{item.userName}</b> just 
                           <span className={isOn ? 'text-green-600 font-bold ml-1' : 'text-slate-500 font-bold ml-1'}>
-                            {isOn ? 'BẬT' : 'TẮT'}
-                          </span> thiết bị <b>{item.deviceName}</b>
+                            {isOn ? 'turned on' : 'turned off'}
+                          </span> <b>{item.deviceName}</b>
                         </p>
                         <p className="text-xs text-slate-500">
-                          {new Date(item.timestamp).toLocaleTimeString('vi-VN')} - {new Date(item.timestamp).toLocaleDateString('vi-VN')}
+                          {item.roomName ? `Room: ${item.roomName}` : 'Room: unassigned'}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {new Date(item.timestamp).toLocaleTimeString('en-US')} - {new Date(item.timestamp).toLocaleDateString('en-US')}
                         </p>
                       </div>
                     </div>

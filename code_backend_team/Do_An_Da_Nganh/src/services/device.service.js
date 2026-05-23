@@ -61,7 +61,16 @@ async function listDevices() {
 
 async function findDevice(deviceId) {
   return prisma.devices.findUnique({
-    where: { device_id: deviceId }
+    where: { device_id: deviceId },
+    include: {
+      rooms: {
+        select: {
+          r_id: true,
+          name: true,
+          room_type: true
+        }
+      }
+    }
   });
 }
 
@@ -159,7 +168,14 @@ async function controlDevice({ deviceId, action, payload, actor }) {
     action,
     publishedValue: value,
     payload: payload ?? null,
-    actor: actor ? { sub: actor.sub, email: actor.email } : null,
+    actor: actor ? { sub: actor.sub, email: actor.email, username: actor.username } : null,
+    device: device ? {
+      deviceId: device.device_id,
+      name: device.d_name,
+      type: device.type,
+      roomId: device.r_id || null,
+      roomName: device.rooms?.name || null
+    } : null,
     ts: new Date().toISOString()
   };
 
@@ -179,9 +195,14 @@ async function controlDevice({ deviceId, action, payload, actor }) {
       type: "DEVICE_ACTION", 
       data: {
         id: Math.random().toString(), // ID tạm thời để UI render
+        deviceId,
         deviceName: device?.d_name || deviceId,
+        deviceType: device?.type || null,
+        roomId: device?.r_id || null,
+        roomName: device?.rooms?.name || null,
         action: action,
-        userName: actor?.email || "Ai đó",
+        userId: actor?.sub || null,
+        userName: actor?.username || actor?.email || "Ai đó",
         timestamp: new Date().toISOString()
       } 
     });
@@ -198,7 +219,7 @@ async function controlDevice({ deviceId, action, payload, actor }) {
 /**
  * Lấy lịch sử điều khiển device
  */
-async function getControlHistory({ deviceId = null, userId = null, limit = 100, from = null, to = null } = {}) {
+async function getControlHistory({ deviceId = null, userId = null, roomId = null, limit = 100, from = null, to = null } = {}) {
   const where = {};
 
   if (deviceId) {
@@ -207,6 +228,10 @@ async function getControlHistory({ deviceId = null, userId = null, limit = 100, 
 
   if (userId) {
     where.u_id = userId;
+  }
+
+  if (roomId) {
+    where.devices = { r_id: roomId };
   }
 
   if (from || to) {
@@ -222,7 +247,21 @@ async function getControlHistory({ deviceId = null, userId = null, limit = 100, 
     take: numLimit,
     orderBy: { time: "desc" },
     include: {
-      devices: { select: { device_id: true, d_name: true, type: true } },
+      devices: {
+        select: {
+          device_id: true,
+          d_name: true,
+          type: true,
+          r_id: true,
+          rooms: {
+            select: {
+              r_id: true,
+              name: true,
+              room_type: true
+            }
+          }
+        }
+      },
       users: { select: { u_id: true, username: true, email: true } }
     }
   });

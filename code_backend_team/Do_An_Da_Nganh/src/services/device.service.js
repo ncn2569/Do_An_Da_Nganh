@@ -2,6 +2,7 @@
 
 const { prisma } = require("../config/database");
 const { connectMqtt } = require("../config/mqtt");
+const { getBroadcast } = require("../iot/wsHandler");
 
 let mqttClient;
 

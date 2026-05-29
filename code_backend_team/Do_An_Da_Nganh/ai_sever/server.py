@@ -20,6 +20,9 @@ import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from contextlib import asynccontextmanager
+from pydantic import BaseModel
+from datetime import datetime
+import pandas as pd
 
 # Khởi tạo AI models
 embedder = FaceNet()
@@ -27,7 +30,15 @@ ml_models = {"svm": None}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    ml_models["svm"] = joblib.load("svm_model_full.pkl")
+    try:
+        ml_models["svm"] = joblib.load("svm_model_full.pkl")
+    except: pass
+    
+    try:
+        ml_models["light"] = joblib.load("light1.pkl")
+        ml_models["fan"] = joblib.load("fan1.pkl")
+    except Exception as e:
+        print(f"Lỗi load ML model: {e}")
     yield
     ml_models.clear()
 
@@ -46,16 +57,12 @@ options = FaceDetectorOptions(
 
 def gen_frames():
     detector = FaceDetector.create_from_options(options)
-    cap = cv2.VideoCapture(1) # 2 là Cam điện thoại 1 là cam lap top 0 là cam phần mềm irinium webcam
+    cap = cv2.VideoCapture(0) # 2 là Cam điện thoại 1 là cam lap top 0 là cam phần mềm irinium webcam
     
     debounce_start_time = None
     REQUIRED_TIME = 1
     
-    # 1. THÊM BIẾN QUẢN LÝ THỜI GIAN CHỜ (COOLDOWN)
-    last_unlock_time = 0  
-    COOLDOWN_TIME = 30.0 # 30 giây
-    
-    # 2. KHAI BÁO DANH SÁCH NGƯỜI NHÀ ĐƯỢC PHÉP VÀO
+    # KHAI BÁO DANH SÁCH NGƯỜI NHÀ ĐƯỢC CẤP QUYỀN VOICE CONTROL
     ALLOWED_USERS = ["nguyen","bao","huygia","thien","khang"] # Thay bằng các class (tên) bạn đã train
     try:
         while True:
@@ -85,39 +92,30 @@ def gen_frames():
                         box_color = (0, 0, 255)
                         text = f"DENIED: {name.upper()} ({confidence:.2f})"
                         
-                        # 3. NÂNG NGƯỠNG CONFIDENCE > 0.75 VÀ KIỂM TRA ĐÚNG NGƯỜI NHÀ KHÔNG
+                        # NÂNG NGƯỠNG CONFIDENCE > 0.75 VÀ KIỂM TRA ĐÚNG NGƯỜI NHÀ KHÔNG
                         if confidence > 0.75 and name.lower() in ALLOWED_USERS:
                             if debounce_start_time is None: 
                                 debounce_start_time = time.time()
                             elapsed = time.time() - debounce_start_time
                             
                             if elapsed >= REQUIRED_TIME:
-                                # 4. KIỂM TRA XEM ĐÃ QUA 30 GIÂY KỂ TỪ LẦN MỞ CỬA TRƯỚC CHƯA
-                                time_since_last_unlock = time.time() - last_unlock_time
+                                # ĐỦ 1 GIÂY → CẤP QUYỀN VOICE CONTROL, GỬI API MỘT LẦN
+                                box_color = (0, 255, 0)
+                                text = f"VOICE GRANTED: {name.upper()}!"
                                 
-                                if time_since_last_unlock >= COOLDOWN_TIME:
-                                    box_color = (0, 255, 0)
-                                    text = f"HELLO {name.upper()}!"
-                                    
-                                    # GHI NHẬN LẠI MỐC THỜI GIAN VỪA MỞ CỬA LÚC NÀY
-                                    last_unlock_time = time.time()
-                                    
-                                    # Gửi API MỘT LẦN DUY NHẤT
-                                    try:
-                                        requests.post("http://localhost:3001/api/devices/face-access", 
-                                                    json={"action": "unlock", "user_class": name}, timeout=0.5)
-                                    except: pass
-                                else:
-                                    # NẾU CHƯA ĐỦ 30S, KHÔNG MỞ NỮA MÀ ĐẾM NGƯỢC THỜI GIAN CHỜ
-                                    box_color = (255, 255, 0) # Khung màu vàng/cyan
-                                    wait_left = COOLDOWN_TIME - time_since_last_unlock
-                                    text = f"OPENED. PLS WAIT {wait_left:.0f}s"
+                                try:
+                                    requests.post("http://localhost:3001/api/devices/face-access", 
+                                                json={"action": "voice_grant", "user_class": name}, timeout=0.5)
+                                except: pass
+                                
+                                # Reset debounce để không gửi liên tục
+                                debounce_start_time = None
                             else:
-                                # Đang đứng đếm đủ 1.5s
+                                # Đang đứng đếm đủ 1s
                                 box_color = (0, 255, 255)
                                 text = f"HOLD STILL... {REQUIRED_TIME - elapsed:.1f}s"
                         else:
-                            # Người lạ hoặc niềm tin quá thấp
+                            # Người lạ hoặc độ tin cậy quá thấp
                             debounce_start_time = None
 
                         cv2.rectangle(frame, (x, y), (x+w, y+h), box_color, 2)
@@ -132,6 +130,64 @@ def gen_frames():
 
         cap.release()
         
+class EnvironmentData(BaseModel):
+    temperature: float
+    humidity: float
+    brightness: float
+    gas_level: float
+
+@app.post("/suggest")
+async def suggest_device_actions(data: EnvironmentData):
+    if not ml_models.get("light") or not ml_models.get("fan"):
+        raise HTTPException(status_code=500, detail="ML Models (light.pkl, fan.pkl) not loaded.")
+        
+    now = datetime.now()
+    # Tạo DataFrame để trùng khớp với tên columns lúc train trên Kaggle
+    input_df = pd.DataFrame([{
+        'hour_of_day': now.hour,
+        'day_of_week': now.weekday(),
+        'temperature': data.temperature,
+        'humidity': data.humidity,
+        'brightness': data.brightness,
+        'gas_level': data.gas_level
+    }])
+    
+    # Dự đoán và lấy xác suất (Probability)
+    light_proba = ml_models["light"].predict_proba(input_df)[0]
+    light_pred = ml_models["light"].classes_[np.argmax(light_proba)]
+    light_conf = np.max(light_proba) * 100
+
+    fan_proba = ml_models["fan"].predict_proba(input_df)[0]
+    fan_pred = ml_models["fan"].classes_[np.argmax(fan_proba)]
+    fan_conf = np.max(fan_proba) * 100
+    
+    # Trích xuất TOÀN BỘ yếu tố và phần trăm đóng góp từ Feature Importances của mô hình
+    features = input_df.columns
+    
+    light_importances = ml_models["light"].feature_importances_
+    light_sorted_idx = np.argsort(light_importances)[::-1]
+    light_all_features = [f"{features[i]} ({light_importances[i]*100:.1f}%)" for i in light_sorted_idx]
+    
+    fan_importances = ml_models["fan"].feature_importances_
+    fan_sorted_idx = np.argsort(fan_importances)[::-1]
+    fan_all_features = [f"{features[i]} ({fan_importances[i]*100:.1f}%)" for i in fan_sorted_idx]
+
+    # Tạo chuỗi giải thích
+    light_reason = f"Xác suất: {light_conf:.1f}%. Ảnh hưởng: {', '.join(light_all_features)}"
+    fan_reason = f"Xác suất: {fan_conf:.1f}%. Ảnh hưởng: {', '.join(fan_all_features)}"
+    
+    return {
+        "ok": True,
+        "suggestions": {
+            "light": light_pred,
+            "fan": fan_pred
+        },
+        "reasons": {
+            "light": light_reason,
+            "fan": fan_reason
+        }
+    }
+
 @app.get("/video_feed")
 async def video_feed():
     return StreamingResponse(gen_frames(), media_type="multipart/x-mixed-replace; boundary=frame")

@@ -54,6 +54,13 @@ export const api = {
 
   getGlobalDeviceHistory: (params?: Record<string, any>) =>
     apiClient.get('/devices/history/all', { params }),
+
+  // Voice Control
+  voiceCommand: (text: string) =>
+    apiClient.post('/devices/voice-command', { text }),
+
+  // AI Suggestion
+  getAISuggestions: () => apiClient.get('/devices/ai-suggest'),
 };
 
 export default apiClient;

@@ -1,7 +1,8 @@
-﻿"use strict";
+"use strict";
 
 const deviceService = require("../services/device.service");
 const { getBroadcast } = require("../iot/wsHandler");
+const { prisma } = require("../config/database");
 
 async function list(req, res, next) {
   try {
@@ -61,15 +62,12 @@ async function faceAccessWebhook(req, res, next) {
   try {
     const payload = req.body;
     
-    if (payload.action === "unlock") {
-      // 1. Phát sóng WebSocket lên UI để giao diện cập nhật ngay lập tức
+    if (payload.action === "voice_grant") {
+      // Phát sóng WebSocket lên UI để Frontend cấp quyền voice control
       const broadcast = getBroadcast();
       if (broadcast) {
-        broadcast({ type: "FACE_DETECTED", data: payload });
+        broadcast({ type: "VOICE_GRANTED", data: payload });
       }
-
-      // 2. Gửi lệnh MQTT mở cửa (Thay deviceId thành ID cửa của bạn)
-      // await deviceService.controlDevice({ deviceId: "front_door", action: "turn_on" });
     }
     res.json({ ok: true });
   } catch (err) {
@@ -101,4 +99,67 @@ async function globalControlHistory(req, res, next) {
 }
 
 
-module.exports = { list, update, control, controlHistory, faceAccessWebhook, globalControlHistory };
+async function voiceCommand(req, res, next) {
+  try {
+    const { text } = req.body || {};
+    if (!text || typeof text !== "string") {
+      return res.status(400).json({ ok: false, error: "text is required" });
+    }
+
+    await deviceService.publishVoiceCommand(text.trim());
+
+    // Broadcast WebSocket để Frontend biết lệnh voice đã gửi
+    const broadcast = getBroadcast();
+    if (broadcast) {
+      broadcast({ type: "VOICE_COMMAND_SENT", data: { text } });
+    }
+
+    res.json({ ok: true, text });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function getAISuggestions(req, res, next) {
+  try {
+    // 1. Lấy dữ liệu cảm biến mới nhất mà KHÔNG BỊ NULL từ DB
+    const [latestTemp, latestHum, latestBright, latestGas] = await Promise.all([
+      prisma.environment.findFirst({ where: { temp: { not: null } }, orderBy: { time_created: 'desc' } }),
+      prisma.environment.findFirst({ where: { humidity: { not: null } }, orderBy: { time_created: 'desc' } }),
+      prisma.environment.findFirst({ where: { bright: { not: null } }, orderBy: { time_created: 'desc' } }),
+      prisma.environment.findFirst({ where: { gas_level: { not: null } }, orderBy: { time_created: 'desc' } })
+    ]);
+
+    const currentEnv = {
+      temperature: latestTemp ? latestTemp.temp : 25.0,
+      humidity: latestHum ? latestHum.humidity : 50.0,
+      brightness: latestBright ? latestBright.bright : 50.0,
+      gas_level: latestGas ? latestGas.gas_level : 0.0
+    };
+
+    // 2. Gửi dữ liệu qua Python FastAPI AI Server (Cổng 8000)
+    const response = await fetch("http://127.0.0.1:8000/suggest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(currentEnv)
+    });
+
+    if (!response.ok) {
+      throw new Error(`AI Server Error: ${response.status}`);
+    }
+
+    const aiData = await response.json();
+
+    // 3. Trả về cho Client App
+    res.json({
+      ok: true,
+      currentEnvironment: currentEnv,
+      suggestions: aiData.suggestions,
+      reasons: aiData.reasons || {}
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { list, update, control, controlHistory, faceAccessWebhook, voiceCommand, globalControlHistory, getAISuggestions };

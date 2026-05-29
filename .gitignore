@@ -62,3 +62,5 @@ print_project.py
 *.pyc
 venv/
 **/__pycache__/
+
+code_backend_team/Do_An_Da_Nganh/ai_sever/AI_random_tree/*

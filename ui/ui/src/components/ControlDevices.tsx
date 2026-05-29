@@ -235,6 +235,14 @@ export function EnvironmentDevices() {
     fetchData();
   }, [fetchData]);
 
+  // Lắng nghe tín hiệu reload từ AI Suggestion (App.tsx)
+  useEffect(() => {
+    const handleRefresh = () => fetchData();
+    window.addEventListener('refresh_devices', handleRefresh);
+    return () => window.removeEventListener('refresh_devices', handleRefresh);
+  }, [fetchData]);
+
+
   const roomLookup = useMemo(() => (
     roomReadings.reduce((acc: Record<string, RoomReadingRecord>, item) => {
       if (item.rooms?.r_id) {

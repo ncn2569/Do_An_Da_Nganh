@@ -8,6 +8,7 @@ import {
   XCircle,
   Camera,
   VideoOff,
+  Mic,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
@@ -46,24 +47,26 @@ export function AccessSecurity({ role }: AccessSecurityProps) {
   useEffect(() => {
     const ws = new WebSocket('ws://localhost:3001');
     ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.type === 'FACE_DETECTED') {
-        setIsLocked(false);
-        setDynamicLog((prev) => [
-          {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'VOICE_GRANTED') {
+          setDynamicLog((prev) => [
+            {
+              name: msg.data.user_class,
+              time: new Date().toLocaleTimeString(),
+              status: 'Voice Granted',
+              type: 'success',
+            },
+            ...prev,
+          ]);
+          setDetectedFace({
             name: msg.data.user_class,
-            time: new Date().toLocaleTimeString(),
-            status: 'AI Granted',
-            type: 'success',
-          },
-          ...prev,
-        ]);
-        setDetectedFace({
-          name: msg.data.user_class,
-          confidence: Number(msg.data.confidence || 0),
-        });
-        setTimeout(() => setIsLocked(true), 5000);
-      }
+            confidence: Number(msg.data.confidence || 0),
+          });
+          // Tự xóa thông báo sau 10 giây
+          setTimeout(() => setDetectedFace(null), 10000);
+        }
+      } catch (_) {}
     };
     return () => ws.close();
   }, []);
@@ -72,8 +75,8 @@ export function AccessSecurity({ role }: AccessSecurityProps) {
     <div className="flex h-full flex-col space-y-6">
       <div className="shrink-0 md:flex-row md:items-center md:justify-between flex flex-col gap-4">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight text-slate-900">Security System</h2>
-          <p className="mt-1 text-sm text-slate-500">Quản lý cửa chính và lịch sử nhận diện khuôn mặt.</p>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900">Face Verification</h2>
+          <p className="mt-1 text-sm text-slate-500">Quét khuôn mặt để xác thực và mở khóa tính năng Voice Control.</p>
         </div>
         <div className="flex flex-wrap gap-3">
           {role === 'Admin' && (
@@ -153,20 +156,16 @@ export function AccessSecurity({ role }: AccessSecurityProps) {
 
             {isCameraOn && detectedFace && (
               <div className="shrink-0 rounded-xl border border-emerald-200 bg-emerald-50/80 p-4 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="rounded-full bg-emerald-100 p-2">
-                      <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">Face Recognized</p>
-                      <p className="text-xs text-slate-600">{detectedFace.name} detected at {new Date().toLocaleTimeString()}</p>
-                    </div>
+                <div className="flex items-center gap-3">
+                  <div className="rounded-full bg-emerald-100 p-2">
+                    <Mic className="h-5 w-5 text-emerald-600" />
                   </div>
-                  <Button size="sm" className="bg-emerald-600 text-white shadow-sm hover:bg-emerald-700" onClick={() => setIsLocked(false)}>
-                    <Unlock className="mr-2 h-4 w-4" />
-                    Unlock Door
-                  </Button>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">Voice Control Activated!</p>
+                    <p className="text-xs text-slate-600">
+                      Xin chào <span className="font-semibold capitalize">{detectedFace.name}</span>! Bạn có thể ra lệnh trong 5 phút.
+                    </p>
+                  </div>
                 </div>
               </div>
             )}
@@ -193,33 +192,33 @@ export function AccessSecurity({ role }: AccessSecurityProps) {
               </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col items-center justify-center p-6">
-              <div className={`relative mb-5 flex h-20 w-20 items-center justify-center rounded-full border-[4px] shadow-inner transition-all duration-500 ${isLocked ? 'border-slate-100 bg-slate-50' : 'border-amber-100 bg-amber-50'}`}>
+              <div className={`relative mb-5 flex h-20 w-20 items-center justify-center rounded-full border-[4px] shadow-inner transition-all duration-500 ${isLocked ? 'border-slate-100 bg-slate-50' : 'border-emerald-100 bg-emerald-50'}`}>
                 {isLocked ? (
                   <Lock className="h-8 w-8 animate-in zoom-in text-slate-600 duration-300" />
                 ) : (
-                  <Unlock className="h-8 w-8 animate-in zoom-in text-amber-500 duration-300" />
+                  <Mic className="h-8 w-8 animate-in zoom-in text-emerald-500 duration-300" />
                 )}
               </div>
 
-              <div className="mb-6 text-center">
-                <p className="mb-1 text-[11px] font-bold uppercase tracking-widest text-slate-400">Front Door</p>
-                <h3 className={`text-2xl font-bold transition-colors ${isLocked ? 'text-slate-800' : 'text-amber-600'}`}>
-                  {isLocked ? 'Locked' : 'Unlocked'}
+              <div className="mb-4 text-center">
+                <p className="mb-1 text-[11px] font-bold uppercase tracking-widest text-slate-400">Voice Status</p>
+                <h3 className={`text-2xl font-bold transition-colors ${isLocked ? 'text-slate-800' : 'text-emerald-600'}`}>
+                  {isLocked ? 'Locked' : 'Voice Ready'}
                 </h3>
               </div>
 
-              <Button
-                onClick={() => setIsLocked(!isLocked)}
-                className={`h-11 w-full rounded-lg font-semibold shadow-md transition-all ${isLocked ? 'bg-slate-800 text-white hover:bg-slate-900' : 'bg-[#0033CC] text-white hover:bg-[#0027a3]'}`}
-              >
-                {isLocked ? 'Tap to Unlock' : 'Lock Door'}
-              </Button>
+              <p className="text-center text-xs text-slate-400 leading-relaxed">
+                {isLocked
+                  ? 'Bật camera và quét khuôn mặt để kích hoạt giọng nói.'
+                  : <>Nói <span className="font-semibold text-slate-600">"bật đèn"</span>, <span className="font-semibold text-slate-600">"tắt quạt"</span>... qua nút mic.</>
+                }
+              </p>
             </CardContent>
           </Card>
 
           <Card className="flex flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md">
             <CardHeader className="flex shrink-0 flex-row items-center justify-between border-b border-slate-100 bg-slate-50/80 pb-3 pt-4">
-              <CardTitle className="text-base font-semibold text-slate-700">Recent Access</CardTitle>
+              <CardTitle className="text-base font-semibold text-slate-700">Voice Access Log</CardTitle>
               <Button variant="link" className="h-auto p-0 text-xs font-semibold text-[#0033CC] hover:text-blue-800 hover:no-underline">
                 View All
               </Button>

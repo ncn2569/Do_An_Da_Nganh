@@ -1,4 +1,4 @@
-﻿"use strict";
+"use strict";
 
 const express = require("express");
 const { authMiddleware } = require("../middlewares/auth.middleware");
@@ -11,5 +11,7 @@ router.put("/:id", authMiddleware, deviceController.update);
 router.post("/:id/control", authMiddleware, deviceController.control);
 router.get("/history/all", authMiddleware, deviceController.globalControlHistory);
 router.get("/:id/history", authMiddleware, deviceController.controlHistory);
+router.get("/ai-suggest", authMiddleware, deviceController.getAISuggestions);
 router.post("/face-access", deviceController.faceAccessWebhook);
+router.post("/voice-command", deviceController.voiceCommand);
 module.exports = router;

@@ -111,6 +111,12 @@ async function main() {
     }
 
     server.close(() => process.exit(0));
+
+    // Fallback: ép buộc thoát nếu các kết nối không tự đóng sau 3 giây
+    setTimeout(() => {
+      logger.warn("Force exit due to hanging connections");
+      process.exit(0);
+    }, 3000);
   };
 
   process.on("SIGINT", shutdown);

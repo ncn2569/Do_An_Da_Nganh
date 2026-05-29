@@ -162,6 +162,16 @@ async function controlDevice({ deviceId, action, payload, actor }) {
 
   await publishAsync(getMqttClient(), topic, value);
 
+   // OPTIMISTIC UPDATE: Cập nhật trạng thái thiết bị vào DB ngay sau khi gửi lệnh
+  let newState = action;
+  if (String(action).toLowerCase() === 'turn_on') newState = 'on';
+  if (String(action).toLowerCase() === 'turn_off') newState = 'off';
+  if (device) {
+    await prisma.devices.update({
+      where: { device_id: deviceId },
+      data: { state: newState }
+    });
+  }
   const event = {
     deviceId,
     topic,
@@ -188,11 +198,11 @@ async function controlDevice({ deviceId, action, payload, actor }) {
       }
     }).catch(() => null);
   }
-  
+
   const broadcast = getBroadcast();
   if (broadcast) {
-    broadcast({ 
-      type: "DEVICE_ACTION", 
+    broadcast({
+      type: "DEVICE_ACTION",
       data: {
         id: Math.random().toString(), // ID tạm thời để UI render
         deviceId,
@@ -204,7 +214,7 @@ async function controlDevice({ deviceId, action, payload, actor }) {
         userId: actor?.sub || null,
         userName: actor?.username || actor?.email || "Ai đó",
         timestamp: new Date().toISOString()
-      } 
+      }
     });
   }
 
@@ -267,4 +277,13 @@ async function getControlHistory({ deviceId = null, userId = null, roomId = null
   });
 }
 
-module.exports = { listDevices, findDevice, updateDevice, controlDevice, getControlHistory };
+/**
+ * Publish lệnh voice text thẳng lên feed HuyGia/feeds/voice
+ * YoloBoard sẽ xử lý chuyển đổi thành lệnh điều khiển thiết bị tương ứng
+ */
+async function publishVoiceCommand(text) {
+  const topic = process.env.MQTT_VOICE_TOPIC || "HuyGia/feeds/voice";
+  await publishAsync(getMqttClient(), topic, text);
+}
+
+module.exports = { listDevices, findDevice, updateDevice, controlDevice, getControlHistory, publishVoiceCommand };

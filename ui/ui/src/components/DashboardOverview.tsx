@@ -184,7 +184,9 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
     roomName: item.devices?.rooms?.name || item.roomName || null,
     userId: item.users?.u_id || item.userId || item.u_id || null,
     action: item.event?.action || item.action || 'UNKNOWN',
-    userName: item.users?.username || item.userName || item.users?.email || 'Hệ thống',
+    userName: (item.event?.source === 'voice_command' && item.event?.faceUser) 
+      ? `${item.event.faceUser} (Voice)` 
+      : (item.userName || item.users?.username || item.users?.email || 'Hệ thống'),
     timestamp: item.time || item.timestamp || new Date().toISOString(),
   }), []);
 
@@ -784,7 +786,7 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
               <p className="text-sm text-slate-500 text-center py-4">No activity yet.</p>
             ) : (
               controlHistory.map((item, index) => {
-                const isOn = ['on', 'turn_on', 'ON'].includes(String(item.action).toUpperCase());
+                const isOn = ['ON', 'TURN_ON'].includes(String(item.action).toUpperCase());
                 return (
                   <div key={item.id + index} className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0 animate-in slide-in-from-top-2 fade-in duration-300">
                     <div className="flex items-center gap-3">

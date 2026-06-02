@@ -58,8 +58,8 @@ export const api = {
     apiClient.get('/devices/history/all', { params }),
 
   // Voice Control
-  voiceCommand: (text: string) =>
-    apiClient.post('/devices/voice-command', { text }),
+  voiceCommand: (text: string, faceUser?: string | null) =>
+    apiClient.post('/devices/voice-command', { text, faceUser }),
 
   // AI Suggestion
   getAISuggestions: () => apiClient.get('/devices/ai-suggest'),

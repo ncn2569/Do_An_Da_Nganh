@@ -281,9 +281,104 @@ async function getControlHistory({ deviceId = null, userId = null, roomId = null
  * Publish lệnh voice text thẳng lên feed HuyGia/feeds/voice
  * YoloBoard sẽ xử lý chuyển đổi thành lệnh điều khiển thiết bị tương ứng
  */
-async function publishVoiceCommand(text) {
+async function publishVoiceCommand(text, actor, faceUser) {
   const topic = process.env.MQTT_VOICE_TOPIC || "HuyGia/feeds/voice";
   await publishAsync(getMqttClient(), topic, text);
+
+  // Dịch lệnh voice thành action và targetType
+  const lowerText = text.toLowerCase();
+  let targetType = null;
+  let action = null;
+  let newState = null;
+
+  if (lowerText.includes("đèn")) {
+    targetType = "light";
+    if (lowerText.includes("bật") || lowerText.includes("mở") || lowerText.includes("sáng")) {
+      action = "turn_on"; newState = "on";
+    } else if (lowerText.includes("tắt") || lowerText.includes("tối")) {
+      action = "turn_off"; newState = "off";
+    }
+  } else if (lowerText.includes("quạt")) {
+    targetType = "fan";
+    if (lowerText.includes("bật") || lowerText.includes("mở") || lowerText.includes("quay")) {
+      action = "turn_on"; newState = "on";
+    } else if (lowerText.includes("tắt") || lowerText.includes("ngừng")) {
+      action = "turn_off"; newState = "off";
+    }
+  }
+
+  if (targetType && action && newState) {
+    // Lấy tất cả device có type hoặc tên chứa targetType (VD: 'light', 'fan')
+    const targetDevices = await prisma.devices.findMany({
+      where: {
+        OR: [
+          { type: { contains: targetType, mode: "insensitive" } },
+          { d_name: { contains: targetType, mode: "insensitive" } }
+        ]
+      },
+      include: {
+        rooms: {
+          select: { name: true }
+        }
+      }
+    });
+
+    const broadcast = getBroadcast();
+
+    for (const device of targetDevices) {
+      // 1. Cập nhật state
+      await prisma.devices.update({
+        where: { device_id: device.device_id },
+        data: { state: newState }
+      });
+
+      // 2. Ghi control_log
+      const event = {
+        deviceId: device.device_id,
+        topic: topic,
+        action: action,
+        source: "voice_command",
+        faceUser: faceUser || null,
+        publishedValue: text,
+        actor: actor ? { sub: actor.sub, email: actor.email, username: actor.username } : null,
+        device: {
+          deviceId: device.device_id,
+          name: device.d_name,
+          type: device.type,
+          roomId: device.r_id || null,
+          roomName: device.rooms?.name || null
+        },
+        ts: new Date().toISOString()
+      };
+
+      await prisma.control_log.create({
+        data: {
+          device_id: device.device_id,
+          u_id: actor?.sub || null,
+          event
+        }
+      }).catch(() => null);
+
+      // 3. Broadcast sự kiện để UI update tự động
+      if (broadcast) {
+        broadcast({
+          type: "DEVICE_ACTION",
+          data: {
+            id: Math.random().toString(),
+            deviceId: device.device_id,
+            deviceName: device.d_name,
+            deviceType: device.type,
+            roomId: device.r_id || null,
+            roomName: device.rooms?.name || null,
+            action: action,
+            userId: actor?.sub || null,
+            userName: faceUser ? `${faceUser} (Voice)` : (actor?.username || actor?.email || "Voice Command"),
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+    }
+  }
 }
 
 module.exports = { listDevices, findDevice, updateDevice, controlDevice, getControlHistory, publishVoiceCommand };

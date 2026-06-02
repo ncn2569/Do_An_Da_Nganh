@@ -31,6 +31,27 @@ function parseJsonMap(value) {
   }
 }
 
+function parseTopicList(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+const CONTROL_TOPIC_INDEX_MAP = {
+  light: 0,
+  button1: 0,
+  fan: 1,
+  button2: 1,
+  button3: 2,
+  auto_light: 2,
+  auto_light_mode: 2,
+  auto_lamp: 2,
+  button4: 3,
+  auto_fan: 3,
+  auto_fan_mode: 3
+};
+
 function getControlTopicMap() {
   const rawMap = parseJsonMap(process.env.MQTT_CONTROL_TOPIC_MAP);
   const normalized = {};
@@ -51,6 +72,10 @@ function getControlValueMap() {
   }
 
   return normalized;
+}
+
+function getControlTopicSequence() {
+  return parseTopicList(process.env.MQTT_TOPIC_CONTROL);
 }
 
 async function listDevices() {
@@ -103,6 +128,7 @@ async function updateDevice({ deviceId, data = {} } = {}) {
 
 function resolveControlTopic({ deviceId, device }) {
   const topicMap = getControlTopicMap();
+  const topicSequence = getControlTopicSequence();
   const candidates = [
     deviceId,
     device?.type,
@@ -115,9 +141,18 @@ function resolveControlTopic({ deviceId, device }) {
     if (topicMap[candidate]) {
       return topicMap[candidate];
     }
+
+    const topicIndex = CONTROL_TOPIC_INDEX_MAP[candidate];
+    if (typeof topicIndex === "number" && topicSequence[topicIndex]) {
+      return topicSequence[topicIndex];
+    }
   }
 
-  return process.env.MQTT_TOPIC_CONTROL || null;
+  if (topicSequence.length === 1) {
+    return topicSequence[0];
+  }
+
+  return null;
 }
 
 function resolveControlValue({ action, payload }) {

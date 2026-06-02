@@ -28,6 +28,8 @@ Map control hien tai:
 
 - `light` -> `HuyGia/feeds/button1`
 - `fan` -> `HuyGia/feeds/button2`
+- `button3` -> `HuyGia/feeds/button3` (che do tu dong bat/tat den)
+- `button4` -> `HuyGia/feeds/button4` (che do tu dong bat/tat quat)
 - `turn_on` -> `1`
 - `turn_off` -> `0`
 
@@ -505,7 +507,9 @@ MQTT_CONTROL_TOPIC_MAP={"light":"HuyGia/feeds/button1","fan":"HuyGia/feeds/butto
 7. Goi `GET /api/environment/history?limit=20`.
 8. Goi `POST /api/devices/light/control` voi `turn_on`.
 9. Goi `POST /api/devices/fan/control` voi `turn_off`.
-10. Xac nhan Adafruit feed va ESP32 nhan dung data.
+10. Goi `POST /api/devices/button3/control` de test che do tu dong den.
+11. Goi `POST /api/devices/button4/control` de test che do tu dong quat.
+12. Xac nhan Adafruit feed va ESP32 nhan dung data.
 
 ## 10. Files lien quan trong backend
 

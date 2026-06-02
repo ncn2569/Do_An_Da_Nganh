@@ -17,6 +17,11 @@ async function control(req, res, next) {
   try {
     const deviceId = req.params.id;
     const { action, payload } = req.body || {};
+
+    if (!action) {
+      return res.status(400).json({ ok: false, error: "action is required" });
+    }
+
     const result = await deviceService.controlDevice({ deviceId, action, payload, actor: req.user });
     res.json(result);
   } catch (err) {

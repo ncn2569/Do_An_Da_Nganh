@@ -62,8 +62,12 @@ MQTT_URL=mqtts://io.adafruit.com:8883
 MQTT_USERNAME=
 MQTT_PASSWORD=
 MQTT_TOPIC_TELEMETRY=HuyGia/feeds/+
-MQTT_TOPIC_CONTROL=HuyGia/feeds/button1,HuyGia/feeds/button2
+MQTT_TOPIC_CONTROL=HuyGia/feeds/button1,HuyGia/feeds/button2,HuyGia/feeds/button3,HuyGia/feeds/button4
+MQTT_CONTROL_TOPIC_MAP={"light":"HuyGia/feeds/button1","fan":"HuyGia/feeds/button2","button3":"HuyGia/feeds/button3","button4":"HuyGia/feeds/button4"}
+MQTT_CONTROL_VALUE_MAP={"turn_on":"1","turn_off":"0"}
 ```
+
+Luu y: `button3` va `button4` dung chung quy uoc voi `button1` va `button2`: `turn_on` gui `1`, `turn_off` gui `0`.
 
 ### Ghi chú
 

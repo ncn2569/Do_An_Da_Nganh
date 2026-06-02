@@ -57,7 +57,7 @@ options = FaceDetectorOptions(
 
 def gen_frames():
     detector = FaceDetector.create_from_options(options)
-    cap = cv2.VideoCapture(0) # 2 là Cam điện thoại 1 là cam lap top 0 là cam phần mềm irinium webcam
+    cap = cv2.VideoCapture(1) # 2 là Cam điện thoại 1 là cam lap top 0 là cam phần mềm irinium webcam
     
     debounce_start_time = None
     REQUIRED_TIME = 1

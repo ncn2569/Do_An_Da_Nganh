@@ -280,10 +280,16 @@ Content-Type: application/json
 }
 ```
 
+**Lưu ý:**
+- Trường `action` là bắt buộc.
+- Nếu không gửi `action`, API sẽ trả về lỗi `action is required`.
+
 **Valid device IDs:**
 - `light` → Bật/tắt đèn (publish vào `HuyGia/feeds/button1`)
 - `fan` → Bật/tắt quạt (publish vào `HuyGia/feeds/button2`)
 - `button1`, `button2` → Điều khiển trực tiếp
+- `button3` → Chế độ tự động bật/tắt đèn (publish vào `HuyGia/feeds/button3`)
+- `button4` → Chế độ tự động bật/tắt quạt (publish vào `HuyGia/feeds/button4`)
 
 **Valid actions:**
 - `turn_on` → Gửi giá trị `1`
@@ -311,6 +317,28 @@ Content-Type: application/json
 }
 ```
 
+**Ví dụ 3: Bật/tắt chế độ tự động đèn**
+```http
+POST /api/devices/button3/control
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+
+{
+  "action": "turn_on"
+}
+```
+
+**Ví dụ 4: Bật/tắt chế độ tự động quạt**
+```http
+POST /api/devices/button4/control
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+
+{
+  "action": "turn_off"
+}
+```
+
 **Response:**
 ```json
 {
@@ -319,6 +347,9 @@ Content-Type: application/json
   "value": "1"
 }
 ```
+
+**Ghi chú:**
+- `button3` và `button4` dùng cùng quy ước điều khiển với `button1` và `button2`.
 
 ### **Lấy lịch sử điều khiển của thiết bị**
 ```http
@@ -808,7 +839,7 @@ Authorization: Bearer <accessToken>
 MQTT_SENSOR_MAP={"temp":"temperature","humidity":"humidity","light":"light","gas":"gas","3347512":"temperature","3352683":"humidity","3374959":"gas","3352680":"light"}
 
 # MQTT Control Mapping
-MQTT_CONTROL_TOPIC_MAP={"light":"HuyGia/feeds/button1","fan":"HuyGia/feeds/button2"}
+MQTT_CONTROL_TOPIC_MAP={"light":"HuyGia/feeds/button1","fan":"HuyGia/feeds/button2","button3":"HuyGia/feeds/button3","button4":"HuyGia/feeds/button4"}
 MQTT_CONTROL_VALUE_MAP={"turn_on":"1","turn_off":"0"}
 
 # MQTT Connection

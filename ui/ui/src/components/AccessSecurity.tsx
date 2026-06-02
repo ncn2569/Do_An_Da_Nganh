@@ -34,8 +34,8 @@ export function AccessSecurity({ role }: AccessSecurityProps) {
       mediaStream.getTracks().forEach((track) => track.stop());
       setIsCameraOn(true);
     } catch (error) {
-      console.error('Lỗi khi truy cập camera:', error);
-      alert('Không thể truy cập camera. Vui lòng kiểm tra quyền trên trình duyệt.');
+      console.error('Error accessing the camera:', error);
+      alert('Cannot access the camera. Please check the permissions in your browser.');
     }
   };
 
@@ -76,7 +76,7 @@ export function AccessSecurity({ role }: AccessSecurityProps) {
       <div className="shrink-0 md:flex-row md:items-center md:justify-between flex flex-col gap-4">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-slate-900">Face Verification</h2>
-          <p className="mt-1 text-sm text-slate-500">Quét khuôn mặt để xác thực và mở khóa tính năng Voice Control.</p>
+          <p className="mt-1 text-sm text-slate-500">Scan your face to verify and unlock the Voice Control feature.</p>
         </div>
         <div className="flex flex-wrap gap-3">
           {role === 'Admin' && (
@@ -163,7 +163,7 @@ export function AccessSecurity({ role }: AccessSecurityProps) {
                   <div>
                     <p className="text-sm font-semibold text-slate-900">Voice Control Activated!</p>
                     <p className="text-xs text-slate-600">
-                      Xin chào <span className="font-semibold capitalize">{detectedFace.name}</span>! Bạn có thể ra lệnh trong 5 phút.
+                      Hello <span className="font-semibold capitalize">{detectedFace.name}</span>! You can give commands for 5 minutes.
                     </p>
                   </div>
                 </div>

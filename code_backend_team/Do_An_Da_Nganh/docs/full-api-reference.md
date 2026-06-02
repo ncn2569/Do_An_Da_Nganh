@@ -251,9 +251,27 @@ Authorization: Bearer <accessToken>
 }
 ```
 
+### **Cập nhật thiết bị**
+```http
+PUT /api/devices/:id
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+```
+
+**Response:**
+```json
+{
+  "device": {
+    "device_id": "light",
+    "type": "light",
+    "d_name": "Living Room Light"
+  }
+}
+```
+
 ### **Điều khiển thiết bị**
 ```http
-POST /api/devices/:deviceId/control
+POST /api/devices/:id/control
 Authorization: Bearer <accessToken>
 Content-Type: application/json
 
@@ -302,6 +320,69 @@ Content-Type: application/json
 }
 ```
 
+### **Lấy lịch sử điều khiển của thiết bị**
+```http
+GET /api/devices/:id/history
+Authorization: Bearer <accessToken>
+```
+
+**Query params:**
+- `limit`: Số lượng bản ghi (default: 100)
+- `from`: Từ ngày (ISO string, optional)
+- `to`: Đến ngày (ISO string, optional)
+
+**Response:**
+```json
+{
+  "deviceId": "light",
+  "count": 2,
+  "data": []
+}
+```
+
+### **Lấy toàn bộ lịch sử điều khiển**
+```http
+GET /api/devices/history/all
+Authorization: Bearer <accessToken>
+```
+
+**Query params:**
+- `limit`: Số lượng bản ghi (default: 50)
+- `deviceId`: Lọc theo thiết bị (optional)
+- `userId`: Lọc theo user (optional)
+- `roomId`: Lọc theo phòng (optional)
+- `from`: Từ ngày (ISO string, optional)
+- `to`: Đến ngày (ISO string, optional)
+
+**Response:**
+```json
+{
+  "count": 0,
+  "data": []
+}
+```
+
+### **Gợi ý AI cho thiết bị**
+```http
+GET /api/devices/ai-suggest
+Authorization: Bearer <accessToken>
+```
+
+**Response:**
+```json
+{
+  "ok": true,
+  "currentEnvironment": {
+    "temperature": 28.5,
+    "humidity": 65.2,
+    "brightness": 150,
+    "gas_level": 400
+  },
+  "suggestions": {},
+  "reasons": {}
+}
+```
+
 ### **Face Access Webhook**
 ```http
 POST /api/devices/face-access
@@ -317,6 +398,25 @@ Content-Type: application/json
 ```json
 {
   "ok": true
+}
+```
+
+### **Voice Command**
+```http
+POST /api/devices/voice-command
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+
+{
+  "text": "bật đèn"
+}
+```
+
+**Response:**
+```json
+{
+  "ok": true,
+  "text": "bật đèn"
 }
 ```
 
@@ -459,6 +559,33 @@ Authorization: Bearer <accessToken>
 }
 ```
 
+### **Lấy danh sách phòng**
+```http
+GET /api/environment/rooms
+Authorization: Bearer <accessToken>
+```
+
+**Response:**
+```json
+{
+  "data": []
+}
+```
+
+### **Tạo phòng**
+```http
+POST /api/environment/rooms
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+```
+
+**Response:**
+```json
+{
+  "data": {}
+}
+```
+
 ### **Lấy nhiều readings mới nhất**
 ```http
 GET /api/environment
@@ -483,6 +610,76 @@ Authorization: Bearer <accessToken>
       "roomId": "living_room"
     }
   ]
+}
+```
+
+### **Danh sách alerts gần đây**
+```http
+GET /api/environment/alerts
+Authorization: Bearer <accessToken>
+```
+
+**Query params:**
+- `limit`: Số lượng bản ghi (default: 50)
+- `roomId`: Lọc theo phòng (optional)
+- `hours`: Số giờ gần nhất (default: 24)
+
+**Response:**
+```json
+{
+  "data": [],
+  "count": 0
+}
+```
+
+### **Xoá alert**
+```http
+DELETE /api/environment/alerts/:alertId
+Authorization: Bearer <accessToken>
+```
+
+**Response:**
+```json
+{
+  "data": {},
+  "message": "Alert deleted"
+}
+```
+
+### **Threshold settings**
+
+#### **Lấy tất cả threshold configs**
+```http
+GET /api/environment/settings/thresholds
+Authorization: Bearer <accessToken>
+```
+
+#### **Lấy một threshold config**
+```http
+GET /api/environment/settings/thresholds/:configKey
+Authorization: Bearer <accessToken>
+```
+
+#### **Tạo hoặc cập nhật threshold**
+```http
+POST /api/environment/settings/thresholds
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+
+{
+  "configKey": "temperature_threshold",
+  "min": 20,
+  "max": 30,
+  "enabled": true,
+  "unit": "C"
+}
+```
+
+**Response:**
+```json
+{
+  "data": {},
+  "message": "Threshold updated successfully"
 }
 ```
 

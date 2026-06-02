@@ -101,18 +101,12 @@ async function globalControlHistory(req, res, next) {
 
 async function voiceCommand(req, res, next) {
   try {
-    const { text } = req.body || {};
+    const { text, faceUser } = req.body || {};
     if (!text || typeof text !== "string") {
       return res.status(400).json({ ok: false, error: "text is required" });
     }
 
-    await deviceService.publishVoiceCommand(text.trim());
-
-    // Broadcast WebSocket để Frontend biết lệnh voice đã gửi
-    const broadcast = getBroadcast();
-    if (broadcast) {
-      broadcast({ type: "VOICE_COMMAND_SENT", data: { text } });
-    }
+    await deviceService.publishVoiceCommand(text.trim(), req.user, faceUser);
 
     res.json({ ok: true, text });
   } catch (err) {

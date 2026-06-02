@@ -13,5 +13,5 @@ router.get("/history/all", authMiddleware, deviceController.globalControlHistory
 router.get("/:id/history", authMiddleware, deviceController.controlHistory);
 router.get("/ai-suggest", authMiddleware, deviceController.getAISuggestions);
 router.post("/face-access", deviceController.faceAccessWebhook);
-router.post("/voice-command", deviceController.voiceCommand);
+router.post("/voice-command", authMiddleware, deviceController.voiceCommand);
 module.exports = router;

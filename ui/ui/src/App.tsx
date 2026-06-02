@@ -141,7 +141,7 @@ export default function App() {
     bootstrapUser();
   }, []);
 
-  // --- WebSocket: lắng nghe sự kiện VOICE_GRANTED từ Backend ---
+  // --- WebSocket: lắng nghe sự kiện từ Backend ---
   useEffect(() => {
     if (!isLoggedIn) return;
 
@@ -154,6 +154,8 @@ export default function App() {
           setVoiceGranted(true);
           setVoiceGrantedUser(msg.data.user_class);
           setVoiceGrantExpiry(Date.now() + VOICE_GRANT_DURATION_MS);
+        } else if (msg.type === 'DEVICE_ACTION') {
+          window.dispatchEvent(new Event('refresh_devices'));
         }
       } catch (_) { }
     };
@@ -222,7 +224,7 @@ export default function App() {
         setDetectedCommand(`Lệnh hợp lệ: [${matchedWord}]`);
 
         // Gửi text lệnh thẳng lên HuyGia/feeds/voice — YoloBoard xử lý phần còn lại
-        api.voiceCommand(matchedIntent).catch(err => console.error('Voice command error:', err));
+        api.voiceCommand(matchedIntent, voiceGrantedUser).catch(err => console.error('Voice command error:', err));
       } else {
         setDetectedCommand("Không có lệnh nào hợp lệ.");
       }

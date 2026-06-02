@@ -13,6 +13,7 @@ import {
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
+import { api } from '../services/api';
 
 interface AccessSecurityProps {
   role: 'Admin' | 'Member';
@@ -45,11 +46,36 @@ export function AccessSecurity({ role }: AccessSecurityProps) {
   };
 
   useEffect(() => {
+    const fetchVoiceHistory = async () => {
+      try {
+        const res = await api.getGlobalDeviceHistory({ limit: 100 });
+        if (res?.data?.data) {
+          const voiceCommands = res.data.data.filter((item: any) => item.event?.source === 'voice_command');
+          const formatted = voiceCommands.map((item: any) => {
+             const isOn = ['ON', 'TURN_ON'].includes(String(item.event?.action).toUpperCase());
+             return {
+                name: `${item.event?.faceUser || 'Unknown'} (Voice)`,
+                time: new Date(item.time || item.timestamp || new Date()).toLocaleString(),
+                status: `${isOn ? 'Turned ON' : 'Turned OFF'} ${item.devices?.d_name || 'Device'}`,
+                type: 'success'
+             };
+          });
+          setDynamicLog(formatted);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    fetchVoiceHistory();
+  }, []);
+
+  useEffect(() => {
     const ws = new WebSocket('ws://localhost:3001');
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
         if (msg.type === 'VOICE_GRANTED') {
+          setIsLocked(false);
           setDynamicLog((prev) => [
             {
               name: msg.data.user_class,
@@ -65,6 +91,17 @@ export function AccessSecurity({ role }: AccessSecurityProps) {
           });
           // Tự xóa thông báo sau 10 giây
           setTimeout(() => setDetectedFace(null), 10000);
+        } else if (msg.type === 'DEVICE_ACTION' && msg.data.userName?.includes('(Voice)')) {
+          const isOn = ['ON', 'TURN_ON'].includes(String(msg.data.action).toUpperCase());
+          setDynamicLog((prev) => [
+            {
+              name: msg.data.userName,
+              time: new Date(msg.data.timestamp).toLocaleTimeString(),
+              status: `${isOn ? 'Turned ON' : 'Turned OFF'} ${msg.data.deviceName}`,
+              type: 'success',
+            },
+            ...prev,
+          ]);
         }
       } catch (_) {}
     };
@@ -216,7 +253,7 @@ export function AccessSecurity({ role }: AccessSecurityProps) {
             </CardContent>
           </Card>
 
-          <Card className="flex flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md">
+          <Card className="flex flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md max-h-[400px] lg:max-h-[600px]">
             <CardHeader className="flex shrink-0 flex-row items-center justify-between border-b border-slate-100 bg-slate-50/80 pb-3 pt-4">
               <CardTitle className="text-base font-semibold text-slate-700">Voice Access Log</CardTitle>
               <Button variant="link" className="h-auto p-0 text-xs font-semibold text-[#0033CC] hover:text-blue-800 hover:no-underline">

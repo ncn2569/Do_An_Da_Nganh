@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ScanFace, Home } from 'lucide-react';
+import { Home } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
@@ -127,15 +127,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               {mode === 'login' ? 'Sign In' : 'Create Account'}
             </Button>
 
-            {mode === 'login' && (
-              <Button 
-                variant="outline" 
-                className="w-full h-11 text-slate-700 font-medium border-slate-200 hover:bg-slate-50 hover:text-slate-900 transition-all duration-200"
-              >
-                <ScanFace className="mr-2 h-5 w-5 text-slate-500" />
-                Sign in with Face ID
-              </Button>
-            )}
+
           </div>
 
           <div className="text-center text-sm text-slate-500 pt-4 border-t border-slate-100">

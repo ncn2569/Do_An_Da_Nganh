@@ -165,8 +165,8 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
   const [selectedHistoryRange, setSelectedHistoryRange] = useState<RangeOption>('1d');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-
-  // State for the realtime device history feed
+  const [alerts, setAlerts] = useState<EnvironmentAlert[]>([]);
+  const [thresholds, setThresholds] = useState<any[]>([]);
   const [controlHistory, setControlHistory] = useState<DeviceHistoryAction[]>([]);
   const [allControlHistory, setAllControlHistory] = useState<DeviceHistoryAction[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>('all');
@@ -210,13 +210,17 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
       const from = buildFromDate(selectedRange);
       const to = new Date().toISOString();
       
-      const [snapshotResponse, historyResponse] = await Promise.all([
+      const [snapshotResponse, historyResponse, alertsResponse, thresholdsResponse] = await Promise.all([
         api.getEnvironmentSnapshot(),
         api.getEnvironmentHistory({ limit: rangeConfig.limit, from, to }),
+        api.getEnvironmentAlerts({ limit: 20, hours: 24 }).catch(() => ({ data: { data: [] } })),
+        api.getEnvironmentThresholds().catch(() => ({ data: { data: [] } })),
       ]);
 
       setSnapshot(snapshotResponse.data?.data || null);
       setHistory((historyResponse.data?.data || []).slice().reverse());
+      setAlerts(alertsResponse.data?.data || []);
+      setThresholds(thresholdsResponse.data?.data || []);
       setLastUpdatedAt(
         new Date().toLocaleTimeString([], {
           hour: '2-digit',
@@ -231,7 +235,6 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
     }
   }, [selectedRange]);
 
-  // Load device history from the backend using the current filters
   useEffect(() => {
     const fetchDeviceHistory = async () => {
       try {
@@ -241,13 +244,12 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
           setControlHistory(formattedHistory);
         }
       } catch (error) {
-        console.error('Failed to load device history (the backend may not support it yet):', error);
+        console.error('Failed to load device history:', error);
       }
     };
     fetchDeviceHistory();
   }, [buildHistoryParams, normalizeHistoryItem, refreshKey]);
 
-  // Load an unfiltered copy to build select options
   useEffect(() => {
     const fetchAllDeviceHistory = async () => {
       try {
@@ -263,7 +265,6 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
     fetchAllDeviceHistory();
   }, [normalizeHistoryItem]);
 
-  // Listen to websocket updates and keep the feed realtime
   useEffect(() => {
     const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
     wsRef.current = new WebSocket(WS_URL);
@@ -303,14 +304,66 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
   }, [fetchData, refreshKey]);
 
   const currentTemp = snapshot?.temperature?.value;
-  const isTempWarning = currentTemp !== undefined && currentTemp !== null && currentTemp > 40;
+  const currentGas = snapshot?.gas?.value;
+
+  const tempThreshold = thresholds.find((t: any) => t.configKey === 'temperature_threshold');
+  const gasThreshold = thresholds.find((t: any) => t.configKey === 'gas_threshold');
+  const tempMax = tempThreshold?.max ?? 32;
+  const gasMax = gasThreshold?.max ?? 1000;
+
+  const displayAlerts = [...alerts];
+  const isTempDanger = currentTemp !== undefined && currentTemp !== null && currentTemp > tempMax;
+  const isGasDanger = currentGas !== undefined && currentGas !== null && currentGas > gasMax;
+
+  if (isGasDanger && isTempDanger) {
+    if (!displayAlerts.some(a => a.a_type === 'fire_explosion_alert')) {
+      displayAlerts.push({
+        a_id: 'client-fire-' + Date.now(),
+        a_type: 'fire_explosion_alert',
+        metadata: {
+          reason: `Cảnh báo cháy nổ (Nhiệt độ ${currentTemp}°C, Gas ${currentGas} ppm)`,
+          value: currentGas,
+          timestamp: new Date().toISOString()
+        },
+        time: new Date().toISOString()
+      });
+    }
+  } else if (isGasDanger) {
+    if (!displayAlerts.some(a => a.a_type === 'gas_leak_alert' || a.a_type.includes('gas'))) {
+      displayAlerts.push({
+        a_id: 'client-gas-' + Date.now(),
+        a_type: 'gas_leak_alert',
+        metadata: {
+          reason: `Cảnh báo rò rỉ khí gas (${currentGas} ppm > ${gasMax})`,
+          value: currentGas,
+          timestamp: new Date().toISOString()
+        },
+        time: new Date().toISOString()
+      });
+    }
+  } else if (isTempDanger) {
+    if (!displayAlerts.some(a => a.a_type.includes('temperature'))) {
+      displayAlerts.push({
+        a_id: 'client-temp-' + Date.now(),
+        a_type: 'temperature_alert',
+        metadata: {
+          reason: `Nhiệt độ quá cao (${currentTemp}°C > ${tempMax}°C)`,
+          value: currentTemp,
+          timestamp: new Date().toISOString()
+        },
+        time: new Date().toISOString()
+      });
+    }
+  }
+
+  const hasAlerts = displayAlerts.length > 0;
 
   const quickStats = [
     {
       label: 'Temperature',
       value: formatMetric(snapshot?.temperature, '°C'),
       icon: Thermometer,
-      color: isTempWarning ? 'text-red-500' : 'text-[#0033CC]',
+      color: isTempDanger ? 'text-red-500' : 'text-[#0033CC]',
     },
     {
       label: 'Humidity',
@@ -328,7 +381,7 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
       label: 'Gas',
       value: formatMetric(snapshot?.gas, ' ppm', 0),
       icon: Zap,
-      color: 'text-[#0033CC]',
+      color: isGasDanger ? 'text-red-500' : 'text-[#0033CC]',
     },
   ];
 
@@ -343,37 +396,31 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
 
   const userOptions = useMemo(() => {
     const map = new Map<string, string>();
-
     allControlHistory.forEach((item) => {
       if (item.userId) {
         map.set(item.userId, item.userName || item.userId);
       }
     });
-
     return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
   }, [allControlHistory]);
 
   const deviceOptions = useMemo(() => {
     const map = new Map<string, string>();
-
     allControlHistory.forEach((item) => {
       if (item.deviceId) {
         map.set(item.deviceId, item.deviceName || item.deviceId);
       }
     });
-
     return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
   }, [allControlHistory]);
 
   const roomOptions = useMemo(() => {
     const map = new Map<string, string>();
-
     allControlHistory.forEach((item) => {
       if (item.roomId) {
         map.set(item.roomId, item.roomName || item.roomId);
       }
     });
-
     return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
   }, [allControlHistory]);
 
@@ -431,29 +478,66 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
         </div>
       </div>
 
-      {/* Temperature warning */}
-      {isTempWarning && (
-        <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-md shadow-sm flex items-start gap-3 animate-in slide-in-from-top-4 fade-in duration-300">
-          <AlertTriangle className="w-6 h-6 text-red-500 flex-shrink-0" />
-          <div>
-            <h3 className="text-red-800 font-bold">High temperature warning!</h3>
-            <p className="text-red-700 text-sm">
-              The current temperature is <b>{currentTemp}°C</b>, which is above the safe threshold. Please check it now.
-            </p>
-          </div>
+      {/* Alerts from Backend & Client-side */}
+      {hasAlerts && (
+        <div className="flex flex-col gap-3">
+          {displayAlerts.map(alert => {
+            const isFire = alert.a_type === 'fire_explosion_alert';
+            const isGas = alert.a_type === 'gas_leak_alert' || alert.a_type.includes('gas') || alert.a_type.includes('smoke');
+            
+            let Icon = AlertTriangle;
+            let containerClass = 'bg-red-50 border-red-500';
+            let iconClass = 'text-red-500';
+            let titleClass = 'text-red-800';
+            let textClass = 'text-red-700';
+            let title = 'Environment Warning!';
+
+            if (isFire) {
+              Icon = Flame;
+              containerClass = 'bg-red-100 border-red-600 shadow-md ring-2 ring-red-500 ring-opacity-50 animate-pulse';
+              iconClass = 'text-red-600 animate-bounce';
+              titleClass = 'text-red-900 text-lg uppercase';
+              textClass = 'text-red-800 font-medium';
+              title = '🚨 CẢNH BÁO CHÁY NỔ 🚨';
+            } else if (isGas) {
+              Icon = Flame;
+              containerClass = 'bg-orange-50 border-orange-500';
+              iconClass = 'text-orange-500';
+              titleClass = 'text-orange-800';
+              textClass = 'text-orange-700';
+              title = 'Cảnh báo Rò rỉ Gas!';
+            } else if (alert.a_type.includes('temperature')) {
+              title = 'Cảnh báo Nhiệt độ!';
+            }
+
+            return (
+              <div key={alert.a_id || Math.random().toString()} className={`border-l-4 p-4 rounded-md shadow-sm flex items-start gap-3 animate-in slide-in-from-top-4 fade-in duration-300 ${containerClass}`}>
+                <Icon className={`w-6 h-6 flex-shrink-0 ${iconClass}`} />
+                <div>
+                  <h3 className={`font-bold ${titleClass}`}>
+                    {title}
+                  </h3>
+                  <p className={`${textClass} text-sm mt-1`}>
+                    {alert.metadata?.reason || 'Abnormal value detected.'} (Recorded at {new Date(alert.time || new Date()).toLocaleTimeString()})
+                  </p>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
         {quickStats.map((stat) => {
           const Icon = stat.icon;
+          const isDanger = (stat.label === 'Temperature' && isTempDanger) || (stat.label === 'Gas' && isGasDanger);
           return (
-            <Card key={stat.label} className={`cursor-pointer border-2 border-slate-300 transition-colors ${stat.label === 'Temperature' && isTempWarning ? 'bg-red-50 border-red-300' : 'hover:bg-slate-50'}`}>
+            <Card key={stat.label} className={`cursor-pointer border-2 border-slate-300 transition-colors ${isDanger ? 'bg-red-50 border-red-300' : 'hover:bg-slate-50'}`}>
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className={`mb-1 text-sm ${stat.label === 'Temperature' && isTempWarning ? 'text-red-600 font-medium' : 'text-muted-foreground'}`}>{stat.label}</p>
-                    <p className={`text-2xl font-semibold ${stat.label === 'Temperature' && isTempWarning ? 'text-red-700' : ''}`}>{stat.value}</p>
+                    <p className={`mb-1 text-sm ${isDanger ? 'text-red-600 font-medium' : 'text-muted-foreground'}`}>{stat.label}</p>
+                    <p className={`text-2xl font-semibold ${isDanger ? 'text-red-700' : ''}`}>{stat.value}</p>
                   </div>
                   <Icon className={`h-8 w-8 ${stat.color}`} />
                 </div>
@@ -565,7 +649,62 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
         </Card>
       </div>
 
-      {/* Realtime device activity feed */}
+
+      {/* Alert History Feed */}
+      <Card className="border-2 border-slate-300">
+        <CardHeader>
+          <CardTitle>Alert History</CardTitle>
+          <p className="text-sm text-muted-foreground">Recent environment warnings recorded in the database.</p>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4 max-h-[350px] overflow-y-auto pr-2">
+            {alerts.length === 0 ? (
+              <p className="text-sm text-slate-500 text-center py-4">No alerts recorded.</p>
+            ) : (
+              alerts.map((item, index) => {
+                const isFire = item.a_type === 'fire_explosion_alert';
+                const isGas = item.a_type === 'gas_leak_alert' || item.a_type.includes('gas') || item.a_type.includes('smoke');
+                
+                let Icon = AlertTriangle;
+                let iconColor = 'text-red-500';
+                let bgColor = 'bg-red-100';
+
+                if (isFire) {
+                  Icon = Flame;
+                  iconColor = 'text-red-600';
+                  bgColor = 'bg-red-200';
+                } else if (isGas) {
+                  Icon = Flame;
+                  iconColor = 'text-orange-500';
+                  bgColor = 'bg-orange-100';
+                }
+
+                return (
+                  <div key={item.a_id || index} className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0 animate-in slide-in-from-top-2 fade-in duration-300">
+                    <div className="flex items-center gap-3">
+                      <div className={`p-2 rounded-full ${bgColor} ${iconColor}`}>
+                        <Icon className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-slate-900">
+                          <b>{item.a_type.replace(/_/g, ' ').toUpperCase()}</b>
+                        </p>
+                        <p className="text-xs text-slate-600 max-w-[280px] sm:max-w-full mt-1">
+                          {item.metadata?.reason || 'Warning triggered'}
+                        </p>
+                        <p className="text-xs text-slate-400 mt-1">
+                          {new Date(item.time).toLocaleTimeString('en-US')} - {new Date(item.time).toLocaleDateString('en-US')}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       <Card className="border-2 border-slate-300">
         <CardHeader>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">

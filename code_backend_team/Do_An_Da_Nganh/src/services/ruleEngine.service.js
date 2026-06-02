@@ -1,4 +1,4 @@
-﻿"use strict";
+"use strict";
 
 const { prisma } = require("../config/database");
 const logger = require("../utils/logger");
@@ -18,22 +18,61 @@ async function evaluateReading(reading) {
 
   try {
     if (reading.kind === "environment") {
-      // Kiểm tra từng metric
-      if (typeof reading.temperature === "number") {
+      const hasTemp = typeof reading.temperature === "number";
+      const hasGas = typeof reading.gas === "number";
+
+      let isTempDanger = false;
+      let isGasDanger = false;
+      let tempReason = "";
+      let gasReason = "";
+
+      if (hasTemp) {
         const tempCheck = await thresholdService.checkThreshold(
           "temperature",
           reading.temperature
         );
-        if (tempCheck.triggered) {
-          alerts.push({
-            type: "temperature_alert",
-            reason: tempCheck.reason,
-            value: reading.temperature,
-            roomId: reading.roomId
-          });
-        }
+        isTempDanger = tempCheck.triggered;
+        tempReason = tempCheck.reason;
       }
 
+      if (hasGas) {
+        const gasCheck = await thresholdService.checkThreshold(
+          "gas",
+          reading.gas
+        );
+        isGasDanger = gasCheck.triggered;
+        gasReason = gasCheck.reason;
+      }
+
+      // 1. Cảnh báo cháy nổ (Gas + Temp)
+      if (isGasDanger && isTempDanger) {
+        alerts.push({
+          type: "fire_explosion_alert",
+          reason: `Cảnh báo cháy nổ (Gas: ${reading.gas} ppm, Temp: ${reading.temperature}°C)`,
+          value: reading.gas,
+          roomId: reading.roomId
+        });
+      } 
+      // 2. Cảnh báo rò rỉ gas
+      else if (isGasDanger) {
+        alerts.push({
+          type: "gas_leak_alert",
+          reason: `Cảnh báo rò rỉ gas: ${gasReason}`,
+          value: reading.gas,
+          roomId: reading.roomId
+        });
+      } 
+      // 3. Cảnh báo quá nhiệt
+      else if (isTempDanger) {
+        alerts.push({
+          type: "temperature_alert",
+          reason: `Cảnh báo nhiệt độ: ${tempReason}`,
+          value: reading.temperature,
+          roomId: reading.roomId
+        });
+      }
+
+      // Xử lý các cảm biến khác (Light, Humidity)
       if (typeof reading.humidity === "number") {
         const humidityCheck = await thresholdService.checkThreshold(
           "humidity",
@@ -59,18 +98,6 @@ async function evaluateReading(reading) {
             type: "light_alert",
             reason: lightCheck.reason,
             value: reading.light,
-            roomId: reading.roomId
-          });
-        }
-      }
-
-      if (typeof reading.gas === "number") {
-        const gasCheck = await thresholdService.checkThreshold("gas", reading.gas);
-        if (gasCheck.triggered) {
-          alerts.push({
-            type: "gas_alert",
-            reason: gasCheck.reason,
-            value: reading.gas,
             roomId: reading.roomId
           });
         }

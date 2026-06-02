@@ -47,6 +47,8 @@ export const api = {
   getEnvironmentRooms: (params?: Record<string, any>) => apiClient.get('/environment/rooms', { params }),
   createEnvironmentRoom: (data: any) => apiClient.post('/environment/rooms', data),
   getEnvironmentRoomsLatest: (params?: Record<string, any>) => apiClient.get('/environment/rooms/latest', { params }),
+  getEnvironmentAlerts: (params?: Record<string, any>) => apiClient.get('/environment/alerts', { params }),
+  getEnvironmentThresholds: () => apiClient.get('/environment/settings/thresholds'),
   
   // Users
   getUsers: () => apiClient.get('/users'),

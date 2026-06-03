@@ -290,24 +290,38 @@ export function EnvironmentDevices() {
         lights: roomDevices.filter((device) => (
           String(device.type).toLowerCase().includes('light') ||
           String(device.d_name).toLowerCase().includes('light')
-        )).length,
+        ) && device.device_id !== 'button3' && device.device_id !== 'button4').length,
         temp: formatTemperature(reading?.temp),
-        occupied: roomDevices.some((device) => isSwitchOn(device.state)),
-        devices: roomDevices.map((device) => ({
-          key: device.device_id,
-          id: device.device_id,
-          name: device.d_name,
-          type: device.type,
-          icon: getDeviceIcon(device.type, device.d_name),
-          roomId: device.r_id || null,
-        })),
+        occupied: roomDevices.some((device) => isSwitchOn(device.state) && device.device_id !== 'button3' && device.device_id !== 'button4'),
+        devices: roomDevices
+          .filter(device => device.device_id !== 'button3' && device.device_id !== 'button4')
+          .map((device) => ({
+            key: device.device_id,
+            id: device.device_id,
+            name: device.d_name,
+            type: device.type,
+            icon: getDeviceIcon(device.type, device.d_name),
+            roomId: device.r_id || null,
+          })),
       };
     });
   }, [devices, roomLookup, roomsData]);
 
+  const button3Device = useMemo(() => devices.find(d => d.device_id === 'button3' || String(d.d_name).toLowerCase().includes('auto light')), [devices]);
+  const button4Device = useMemo(() => devices.find(d => d.device_id === 'button4' || String(d.d_name).toLowerCase().includes('auto fan')), [devices]);
+  
+  const [autoStates, setAutoStates] = useState({ light: false, fan: false });
+
+  useEffect(() => {
+    setAutoStates({
+      light: button3Device ? isSwitchOn(button3Device.state) : false,
+      fan: button4Device ? isSwitchOn(button4Device.state) : false
+    });
+  }, [button3Device, button4Device]);
+
   const unassignedDevices = useMemo(() => (
     devices
-      .filter((device) => !device.r_id)
+      .filter((device) => !device.r_id && device.device_id !== 'button3' && device.device_id !== 'button4')
       .map((device) => ({
         key: device.device_id,
         id: device.device_id,
@@ -319,7 +333,7 @@ export function EnvironmentDevices() {
   ), [devices]);
 
   const assignableDevices = useMemo(() => (
-    devices.filter((device) => device.r_id !== activeRoomDetail)
+    devices.filter((device) => device.r_id !== activeRoomDetail && device.device_id !== 'button3' && device.device_id !== 'button4')
   ), [devices, activeRoomDetail]);
 
   const activeRoom = rooms.find((room) => room.key === activeRoomDetail) || null;
@@ -364,6 +378,24 @@ export function EnvironmentDevices() {
         updated.delete(deviceKey);
         return updated;
       });
+    }
+  };
+
+  const toggleAutoMode = async (type: 'light' | 'fan') => {
+    const currentState = type === 'light' ? autoStates.light : autoStates.fan;
+    const targetId = type === 'light' ? 'button3' : 'button4';
+    const action = !currentState ? 'turn_on' : 'turn_off';
+    
+    // Optimistic UI update
+    setAutoStates(prev => ({ ...prev, [type]: !currentState }));
+    
+    try {
+      await api.controlDevice(targetId, { action });
+    } catch (error) {
+      // Revert on error
+      setAutoStates(prev => ({ ...prev, [type]: currentState }));
+      const errorMsg = error instanceof Error ? error.message : 'Failed to control auto mode';
+      setErrorMessage(`Auto ${type}: ${errorMsg}`);
     }
   };
 
@@ -706,11 +738,44 @@ export function EnvironmentDevices() {
 
                               <Switch
                                 checked={isOn}
-                                disabled={isLoading}
+                                disabled={isLoading || (device.type.toLowerCase().includes('light') && autoStates.light) || (device.type.toLowerCase().includes('fan') && autoStates.fan)}
                                 onCheckedChange={() => toggleRoomDevice(activeRoom.key, device)}
                                 className="data-[state=checked]:bg-blue-600"
                               />
                             </div>
+
+                            {/* Auto Mode Toggle for Light and Fan */}
+                            {(device.type.toLowerCase().includes('light') || device.name.toLowerCase().includes('light')) && (
+                              <div className="flex items-center justify-between mt-2 pt-3 border-t border-slate-100">
+                                <div className="flex items-center gap-2">
+                                  <div className={`rounded-full p-1.5 ${autoStates.light ? 'bg-blue-50' : 'bg-slate-50'}`}>
+                                    <Bot className={`h-3.5 w-3.5 ${autoStates.light ? 'text-blue-600' : 'text-slate-400'}`} />
+                                  </div>
+                                  <span className={`text-sm font-medium ${autoStates.light ? 'text-slate-800' : 'text-slate-500'}`}>Auto mode</span>
+                                </div>
+                                <Switch
+                                  checked={autoStates.light}
+                                  onCheckedChange={() => toggleAutoMode('light')}
+                                  className="scale-90 data-[state=checked]:bg-blue-500"
+                                />
+                              </div>
+                            )}
+
+                            {(device.type.toLowerCase().includes('fan') || device.name.toLowerCase().includes('fan')) && (
+                              <div className="flex items-center justify-between mt-2 pt-3 border-t border-slate-100">
+                                <div className="flex items-center gap-2">
+                                  <div className={`rounded-full p-1.5 ${autoStates.fan ? 'bg-blue-50' : 'bg-slate-50'}`}>
+                                    <Bot className={`h-3.5 w-3.5 ${autoStates.fan ? 'text-blue-600' : 'text-slate-400'}`} />
+                                  </div>
+                                  <span className={`text-sm font-medium ${autoStates.fan ? 'text-slate-800' : 'text-slate-500'}`}>Auto mode</span>
+                                </div>
+                                <Switch
+                                  checked={autoStates.fan}
+                                  onCheckedChange={() => toggleAutoMode('fan')}
+                                  className="scale-90 data-[state=checked]:bg-blue-500"
+                                />
+                              </div>
+                            )}
 
                             <div className="mt-2 flex items-center justify-between border-t border-slate-200/60 pt-4">
                               <Badge variant="outline" className={`${isOn ? 'border-none bg-blue-100 text-blue-700' : 'border-none bg-slate-100 text-slate-500'}`}>

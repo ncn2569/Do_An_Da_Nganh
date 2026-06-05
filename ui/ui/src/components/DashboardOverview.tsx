@@ -62,13 +62,20 @@ interface DeviceHistoryAction {
 interface EnvironmentAlert {
   a_id: string;
   a_type: string;
+  r_id?: string | null;
   metadata?: {
     reason?: string;
     value?: number | null;
     timestamp?: string;
+    bounds?: { min: number | null; max: number | null };
     [key: string]: any;
   } | null;
   time: string;
+  rooms?: {
+    r_id: string;
+    name: string;
+    room_type: string;
+  } | null;
 }
 
 type RangeOption = '1d' | '3d' | '1w' | '1m';
@@ -176,6 +183,7 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
   const [selectedRange, setSelectedRange] = useState<RangeOption>('1d');
   const [selectedHistoryRange, setSelectedHistoryRange] = useState<RangeOption>('1d');
+  const [selectedAlertRange, setSelectedAlertRange] = useState<RangeOption>('1d');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [alerts, setAlerts] = useState<EnvironmentAlert[]>([]);
@@ -225,10 +233,14 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
       const from = buildFromDate(selectedRange);
       const to = new Date().toISOString();
       
+      const alertRangeConfig = getRangeConfig(selectedAlertRange);
+      const alertFrom = buildFromDate(selectedAlertRange);
+      const alertTo = new Date().toISOString();
+      
       const [snapshotResponse, historyResponse, alertsResponse, thresholdsResponse] = await Promise.all([
         api.getEnvironmentSnapshot(),
         api.getEnvironmentHistory({ limit: rangeConfig.limit, from, to }),
-        api.getEnvironmentAlerts({ limit: 20, hours: 24 }).catch(() => ({ data: { data: [] } })),
+        api.getEnvironmentAlerts({ limit: 100, from: alertFrom, to: alertTo }).catch(() => ({ data: { data: [] } })),
         api.getEnvironmentThresholds().catch(() => ({ data: { data: [] } })),
       ]);
 
@@ -248,7 +260,7 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
     } finally {
       setIsRefreshing(false);
     }
-  }, [selectedRange]);
+  }, [selectedRange, selectedAlertRange]);
 
   useEffect(() => {
     const fetchDeviceHistory = async () => {
@@ -668,48 +680,124 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
       {/* Alert History Feed */}
       <Card className="border-2 border-slate-300">
         <CardHeader>
-          <CardTitle>Alert History</CardTitle>
-          <p className="text-sm text-muted-foreground">Recent environment warnings recorded in the database.</p>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <CardTitle>Alert History</CardTitle>
+              <p className="text-sm text-muted-foreground">Environment warnings recorded in the database</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {rangeOptions.map((option) => (
+                <Button
+                  key={option.key}
+                  type="button"
+                  variant={selectedAlertRange === option.key ? 'default' : 'outline'}
+                  className={selectedAlertRange === option.key ? 'bg-[#0033CC] hover:bg-[#0029a3]' : ''}
+                  onClick={() => setSelectedAlertRange(option.key)}
+                  size="sm"
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4 max-h-[350px] overflow-y-auto pr-2">
+          <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
             {alerts.length === 0 ? (
-              <p className="text-sm text-slate-500 text-center py-4">No alerts recorded.</p>
+              <p className="text-sm text-slate-500 text-center py-6">No alerts recorded in this period.</p>
             ) : (
               alerts.map((item, index) => {
                 const isFire = item.a_type === 'fire_explosion_alert';
                 const isGas = item.a_type === 'gas_leak_alert' || item.a_type.includes('gas') || item.a_type.includes('smoke');
+                const isTemp = item.a_type.includes('temperature');
+                const isHumidity = item.a_type.includes('humidity');
+                const isLight = item.a_type.includes('light');
                 
                 let Icon = AlertTriangle;
                 let iconColor = 'text-red-500';
                 let bgColor = 'bg-red-100';
+                let badgeColor = 'bg-red-100 text-red-800';
 
                 if (isFire) {
                   Icon = Flame;
                   iconColor = 'text-red-600';
                   bgColor = 'bg-red-200';
+                  badgeColor = 'bg-red-100 text-red-800';
                 } else if (isGas) {
                   Icon = Flame;
                   iconColor = 'text-orange-500';
                   bgColor = 'bg-orange-100';
+                  badgeColor = 'bg-orange-100 text-orange-800';
+                } else if (isTemp) {
+                  Icon = Thermometer;
+                  iconColor = 'text-amber-500';
+                  bgColor = 'bg-amber-100';
+                  badgeColor = 'bg-amber-100 text-amber-800';
+                } else if (isHumidity) {
+                  Icon = Zap;
+                  iconColor = 'text-blue-500';
+                  bgColor = 'bg-blue-100';
+                  badgeColor = 'bg-blue-100 text-blue-800';
+                } else if (isLight) {
+                  Icon = Lightbulb;
+                  iconColor = 'text-yellow-500';
+                  bgColor = 'bg-yellow-100';
+                  badgeColor = 'bg-yellow-100 text-yellow-800';
                 }
 
+                const alertTime = new Date(item.time);
+                const now = new Date();
+                const diffMs = now.getTime() - alertTime.getTime();
+                const diffMins = Math.floor(diffMs / 60000);
+                const diffHours = Math.floor(diffMs / 3600000);
+                const diffDays = Math.floor(diffMs / 86400000);
+                
+                let timeAgo = '';
+                if (diffMins < 1) timeAgo = 'Just now';
+                else if (diffMins < 60) timeAgo = `${diffMins}m ago`;
+                else if (diffHours < 24) timeAgo = `${diffHours}h ago`;
+                else timeAgo = `${diffDays}d ago`;
+
+                const alertValue = item.metadata?.value;
+                const alertBounds = item.metadata?.bounds;
+                const roomName = item.rooms?.name || 'Unknown Room';
+
                 return (
-                  <div key={item.a_id || index} className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0 animate-in slide-in-from-top-2 fade-in duration-300">
-                    <div className="flex items-center gap-3">
-                      <div className={`p-2 rounded-full ${bgColor} ${iconColor}`}>
-                        <Icon className="w-5 h-5" />
+                  <div key={item.a_id || index} className="flex gap-3 p-3 rounded-lg border border-slate-200 hover:border-slate-300 hover:shadow-sm transition-all bg-slate-50/50 animate-in slide-in-from-top-2 fade-in duration-300">
+                    <div className={`p-2 rounded-lg ${bgColor} ${iconColor} flex-shrink-0 h-fit`}>
+                      <Icon className="w-5 h-5" />
+                    </div>
+                    <div className="flex-grow min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-grow">
+                          <p className="text-sm font-semibold text-slate-900">
+                            {item.a_type.replace(/_/g, ' ').toUpperCase()}
+                          </p>
+                          <p className="text-xs text-slate-600 mt-1">
+                            {item.metadata?.reason || 'Warning triggered'}
+                          </p>
+                        </div>
+                        <Badge className={`text-xs whitespace-nowrap flex-shrink-0 ${badgeColor}`}>
+                          {timeAgo}
+                        </Badge>
                       </div>
-                      <div>
-                        <p className="text-sm font-medium text-slate-900">
-                          <b>{item.a_type.replace(/_/g, ' ').toUpperCase()}</b>
-                        </p>
-                        <p className="text-xs text-slate-600 max-w-[280px] sm:max-w-full mt-1">
-                          {item.metadata?.reason || 'Warning triggered'}
-                        </p>
-                        <p className="text-xs text-slate-400 mt-1">
-                          {new Date(item.time).toLocaleTimeString('en-US')} - {new Date(item.time).toLocaleDateString('en-US')}
-                        </p>
+                      <div className="flex flex-wrap gap-2 mt-2 text-xs">
+                        <span className="px-2 py-1 bg-white rounded border border-slate-200 text-slate-600">
+                           {roomName}
+                        </span>
+                        {alertValue !== null && alertValue !== undefined && (
+                          <span className="px-2 py-1 bg-white rounded border border-slate-200 text-slate-600">
+                             Value: {typeof alertValue === 'number' ? alertValue.toFixed(1) : alertValue}
+                          </span>
+                        )}
+                        {alertBounds && (alertBounds.min !== null || alertBounds.max !== null) && (
+                          <span className="px-2 py-1 bg-white rounded border border-slate-200 text-slate-600">
+                              Range: {alertBounds.min ?? '—'} ~ {alertBounds.max ?? '—'}
+                          </span>
+                        )}
+                        <span className="px-2 py-1 bg-white rounded border border-slate-200 text-slate-500 text-xs">
+                          {alertTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} {alertTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </span>
                       </div>
                     </div>
                   </div>

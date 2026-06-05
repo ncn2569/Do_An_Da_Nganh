@@ -2,21 +2,30 @@
 
 const { prisma } = require("../config/database");
 const logger = require("../utils/logger");
+const ruleEngine = require("./ruleEngine.service");
 
 async function saveTelemetry(telemetry) {
   if (!telemetry || typeof telemetry !== "object") {
     throw new Error("telemetry is required");
   }
 
+  let saved;
+
   if (telemetry.kind === "environment") {
-    return saveEnvironmentReading(telemetry);
+    saved = await saveEnvironmentReading(telemetry);
+  } else if (telemetry.kind === "single") {
+    saved = await saveSingleReadingAsEnvironment(telemetry);
+  } else {
+    throw new Error(`Unsupported telemetry kind: ${telemetry.kind}`);
   }
 
-  if (telemetry.kind === "single") {
-    return saveSingleReadingAsEnvironment(telemetry);
+  try {
+    await ruleEngine.evaluateReading(telemetry);
+  } catch (err) {
+    logger.error({ err, telemetry }, "Failed to evaluate telemetry threshold rules");
   }
 
-  throw new Error(`Unsupported telemetry kind: ${telemetry.kind}`);
+  return saved;
 }
 
 async function resolveRoomId({ roomId, deviceId }) {

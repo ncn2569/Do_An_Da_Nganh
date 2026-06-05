@@ -24,7 +24,9 @@ async function evaluateReading(reading) {
       let isTempDanger = false;
       let isGasDanger = false;
       let tempReason = "";
+      let tempBounds = null;
       let gasReason = "";
+      let gasBounds = null;
 
       if (hasTemp) {
         const tempCheck = await thresholdService.checkThreshold(
@@ -33,6 +35,7 @@ async function evaluateReading(reading) {
         );
         isTempDanger = tempCheck.triggered;
         tempReason = tempCheck.reason;
+        tempBounds = tempCheck.bounds;
       }
 
       if (hasGas) {
@@ -42,6 +45,7 @@ async function evaluateReading(reading) {
         );
         isGasDanger = gasCheck.triggered;
         gasReason = gasCheck.reason;
+        gasBounds = gasCheck.bounds;
       }
 
       // 1. Cảnh báo cháy nổ (Gas + Temp)
@@ -50,6 +54,7 @@ async function evaluateReading(reading) {
           type: "fire_explosion_alert",
           reason: `Cảnh báo cháy nổ (Gas: ${reading.gas} ppm, Temp: ${reading.temperature}°C)`,
           value: reading.gas,
+          bounds: gasBounds,
           roomId: reading.roomId
         });
       } 
@@ -59,6 +64,7 @@ async function evaluateReading(reading) {
           type: "gas_leak_alert",
           reason: `Cảnh báo rò rỉ gas: ${gasReason}`,
           value: reading.gas,
+          bounds: gasBounds,
           roomId: reading.roomId
         });
       } 
@@ -68,6 +74,7 @@ async function evaluateReading(reading) {
           type: "temperature_alert",
           reason: `Cảnh báo nhiệt độ: ${tempReason}`,
           value: reading.temperature,
+          bounds: tempBounds,
           roomId: reading.roomId
         });
       }
@@ -83,6 +90,7 @@ async function evaluateReading(reading) {
             type: "humidity_alert",
             reason: humidityCheck.reason,
             value: reading.humidity,
+            bounds: humidityCheck.bounds,
             roomId: reading.roomId
           });
         }
@@ -98,6 +106,7 @@ async function evaluateReading(reading) {
             type: "light_alert",
             reason: lightCheck.reason,
             value: reading.light,
+            bounds: lightCheck.bounds,
             roomId: reading.roomId
           });
         }
@@ -113,6 +122,7 @@ async function evaluateReading(reading) {
           type: `${reading.sensorId}_alert`,
           reason: metricCheck.reason,
           value: reading.value,
+          bounds: metricCheck.bounds,
           roomId: reading.roomId
         });
       }
@@ -127,6 +137,7 @@ async function evaluateReading(reading) {
           metadata: {
             reason: alert.reason,
             value: alert.value,
+            bounds: alert.bounds,
             readingKind: reading.kind,
             timestamp: new Date().toISOString()
           }

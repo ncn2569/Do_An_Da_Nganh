@@ -19,6 +19,7 @@ router.get("/rooms/latest", authMiddleware, environmentController.latestByRoom);
 
 // Alerts
 router.get("/alerts", authMiddleware, thresholdController.listAlerts);
+router.post("/alerts", authMiddleware, thresholdController.createAlert);
 router.delete("/alerts/:alertId", authMiddleware, thresholdController.deleteAlert);
 
 // Thresholds

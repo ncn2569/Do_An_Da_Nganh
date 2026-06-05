@@ -147,10 +147,36 @@ async function deleteAlert(req, res) {
   }
 }
 
+/**
+ * POST /api/environment/alerts - Lưu alert ngay lập tức
+ * Body: { alertType, roomId, metadata }
+ */
+async function createAlert(req, res) {
+  try {
+    const { alertType, roomId = null, metadata = {} } = req.body;
+
+    if (!alertType) {
+      return res.status(400).json({ error: "alertType is required" });
+    }
+
+    const result = await thresholdService.createAlert({
+      alertType,
+      roomId,
+      metadata
+    });
+
+    res.status(201).json({ data: result, message: "Alert saved" });
+  } catch (err) {
+    logger.error({ err }, "Failed to create alert");
+    res.status(500).json({ error: "Failed to create alert" });
+  }
+}
+
 module.exports = {
   listThresholds,
   getThreshold,
   setThreshold,
   listAlerts,
-  deleteAlert
+  deleteAlert,
+  createAlert
 };

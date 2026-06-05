@@ -195,6 +195,7 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
   const [selectedRoomId, setSelectedRoomId] = useState<string>('all');
   const wsRef = useRef<WebSocket | null>(null);
   const filtersRef = useRef({ userId: 'all', deviceId: 'all', roomId: 'all' });
+  const savedLiveAlertsRef = useRef<Record<string, boolean>>({});
 
   const normalizeHistoryItem = useCallback((item: any): DeviceHistoryAction => ({
     id: item.id || item.c_id || Math.random().toString(),
@@ -332,15 +333,23 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
 
   const currentTemp = snapshot?.temperature?.value;
   const currentGas = snapshot?.gas?.value;
+  const currentHumidity = snapshot?.humidity?.value;
+  const currentLight = snapshot?.light?.value;
 
   const tempThreshold = thresholds.find((t: any) => t.configKey === 'temperature_threshold');
   const gasThreshold = thresholds.find((t: any) => t.configKey === 'gas_threshold');
+  const humidityThreshold = thresholds.find((t: any) => t.configKey === 'humidity_threshold');
+  const lightThreshold = thresholds.find((t: any) => t.configKey === 'light_threshold');
   const tempMax = tempThreshold?.max ?? 32;
   const gasMax = gasThreshold?.max ?? 1000;
+  const humidityMax = Number.isFinite(Number(humidityThreshold?.max)) ? Number(humidityThreshold?.max) : Infinity;
+  const lightMax = Number.isFinite(Number(lightThreshold?.max)) ? Number(lightThreshold?.max) : Infinity;
 
   const displayAlerts = [...alerts];
   const isTempDanger = currentTemp !== undefined && currentTemp !== null && currentTemp > tempMax;
   const isGasDanger = currentGas !== undefined && currentGas !== null && currentGas > gasMax;
+  const isHumidityDanger = currentHumidity !== undefined && currentHumidity !== null && currentHumidity > humidityMax;
+  const isLightDanger = currentLight !== undefined && currentLight !== null && currentLight > lightMax;
 
   if (isGasDanger && isTempDanger) {
     if (!displayAlerts.some(a => a.a_type === 'fire_explosion_alert')) {
@@ -383,7 +392,110 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
     }
   }
 
+  if (isHumidityDanger) {
+    if (!displayAlerts.some(a => a.a_type === 'humidity_alert')) {
+      displayAlerts.push({
+        a_id: 'client-humidity-' + Date.now(),
+        a_type: 'humidity_alert',
+        metadata: {
+          reason: `Độ ẩm quá cao (${currentHumidity}% > ${humidityMax}%)`,
+          value: currentHumidity,
+          timestamp: new Date().toISOString()
+        },
+        time: new Date().toISOString()
+      });
+    }
+  }
+
+  if (isLightDanger) {
+    if (!displayAlerts.some(a => a.a_type === 'light_alert')) {
+      displayAlerts.push({
+        a_id: 'client-light-' + Date.now(),
+        a_type: 'light_alert',
+        metadata: {
+          reason: `Ánh sáng quá cao (${currentLight} lux > ${lightMax} lux)`,
+          value: currentLight,
+          timestamp: new Date().toISOString()
+        },
+        time: new Date().toISOString()
+      });
+    }
+  }
+
+  const sortedAlerts = displayAlerts
+    .slice()
+    .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+  const latestAlert = sortedAlerts[0] || null;
+
+  useEffect(() => {
+    const activeAlerts = [] as Array<{ type: string; reason: string; value: number | null }>;
+
+    if (isGasDanger && isTempDanger) {
+      activeAlerts.push({
+        type: 'fire_explosion_alert',
+        reason: `Cảnh báo cháy nổ (Nhiệt độ ${currentTemp}°C, Gas ${currentGas} ppm)`,
+        value: currentGas
+      });
+    } else if (isGasDanger) {
+      activeAlerts.push({
+        type: 'gas_leak_alert',
+        reason: `Cảnh báo rò rỉ khí gas (${currentGas} ppm > ${gasMax})`,
+        value: currentGas
+      });
+    } else if (isTempDanger) {
+      activeAlerts.push({
+        type: 'temperature_alert',
+        reason: `Nhiệt độ quá cao (${currentTemp}°C > ${tempMax}°C)`,
+        value: currentTemp
+      });
+    }
+
+    if (isHumidityDanger) {
+      activeAlerts.push({
+        type: 'humidity_alert',
+        reason: `Độ ẩm quá cao (${currentHumidity}% > ${humidityMax}%)`,
+        value: currentHumidity
+      });
+    }
+
+    if (isLightDanger) {
+      activeAlerts.push({
+        type: 'light_alert',
+        reason: `Ánh sáng quá cao (${currentLight} lux > ${lightMax} lux)`,
+        value: currentLight
+      });
+    }
+
+    if (activeAlerts.length === 0) {
+      savedLiveAlertsRef.current = {};
+      return;
+    }
+
+    activeAlerts.forEach((activeAlert) => {
+      if (savedLiveAlertsRef.current[activeAlert.type]) {
+        return;
+      }
+
+      savedLiveAlertsRef.current[activeAlert.type] = true;
+
+      api.createEnvironmentAlert({
+        alertType: activeAlert.type,
+        roomId: selectedRoomId !== 'all' ? selectedRoomId : null,
+        metadata: {
+          reason: activeAlert.reason,
+          value: activeAlert.value,
+          timestamp: new Date().toISOString()
+        }
+      }).catch((error) => {
+        console.error('Failed to save live alert:', error);
+        savedLiveAlertsRef.current[activeAlert.type] = false;
+      });
+    });
+
+  }, [isGasDanger, isTempDanger, isHumidityDanger, isLightDanger, currentGas, currentTemp, currentHumidity, currentLight, gasMax, tempMax, humidityMax, lightMax, selectedRoomId]);
+
   const hasAlerts = displayAlerts.length > 0;
+  const historyAlerts = displayAlerts;
 
   const quickStats = [
     {
@@ -508,16 +620,17 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
       {/* Alerts from Backend & Client-side */}
       {hasAlerts && (
         <div className="flex flex-col gap-3">
-          {displayAlerts.map(alert => {
-            const isFire = alert.a_type === 'fire_explosion_alert';
-            const isGas = alert.a_type === 'gas_leak_alert' || alert.a_type.includes('gas') || alert.a_type.includes('smoke');
-            
-            let Icon = AlertTriangle;
-            let containerClass = 'bg-red-50 border-red-500';
-            let iconClass = 'text-red-500';
-            let titleClass = 'text-red-800';
-            let textClass = 'text-red-700';
-            let title = 'Environment Warning!';
+          {latestAlert && (() => {
+        const alert = latestAlert;
+        const isFire = alert.a_type === 'fire_explosion_alert';
+        const isGas = alert.a_type === 'gas_leak_alert' || alert.a_type.includes('gas') || alert.a_type.includes('smoke');
+        
+        let Icon = AlertTriangle;
+        let containerClass = 'bg-red-50 border-red-500';
+        let iconClass = 'text-red-500';
+        let titleClass = 'text-red-800';
+        let textClass = 'text-red-700';
+        let title = 'Environment Warning!';
 
             if (isFire) {
               Icon = Flame;
@@ -550,7 +663,7 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
                 </div>
               </div>
             );
-          })}
+          })()}
         </div>
       )}
 
@@ -703,10 +816,10 @@ export function DashboardOverview({ onNavigate }: DashboardOverviewProps) {
         </CardHeader>
         <CardContent>
           <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
-            {alerts.length === 0 ? (
+            {historyAlerts.length === 0 ? (
               <p className="text-sm text-slate-500 text-center py-6">No alerts recorded in this period.</p>
             ) : (
-              alerts.map((item, index) => {
+              historyAlerts.map((item, index) => {
                 const isFire = item.a_type === 'fire_explosion_alert';
                 const isGas = item.a_type === 'gas_leak_alert' || item.a_type.includes('gas') || item.a_type.includes('smoke');
                 const isTemp = item.a_type.includes('temperature');

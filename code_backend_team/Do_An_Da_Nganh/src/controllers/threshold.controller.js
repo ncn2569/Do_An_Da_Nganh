@@ -3,6 +3,24 @@
 const thresholdService = require("../services/threshold.service");
 const logger = require("../utils/logger");
 
+function parseOptionalNumber(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseDateOrNull(value) {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 /**
  * GET /api/settings/thresholds - Lấy tất cả threshold configs
  */
@@ -47,15 +65,21 @@ async function setThreshold(req, res) {
       return res.status(400).json({ error: "configKey is required" });
     }
 
+    const normalizedMin = parseOptionalNumber(min);
+    const normalizedMax = parseOptionalNumber(max);
+
     // Validate min/max
-    if (typeof min !== "number" && typeof max !== "number") {
+    if (normalizedMin === null && normalizedMax === null) {
       return res.status(400).json({ error: "At least min or max is required" });
     }
 
     const configValue = {
-      min: typeof min === "number" ? min : null,
-      max: typeof max === "number" ? max : null,
-      enabled: !!enabled,
+      min: normalizedMin,
+      max: normalizedMax,
+      enabled:
+        typeof enabled === "string"
+          ? enabled.toLowerCase() !== "false"
+          : !!enabled,
       unit: unit || ""
     };
 
@@ -82,12 +106,16 @@ async function listAlerts(req, res) {
   try {
     const limit = Math.min(Number(req.query.limit) || 50, 200);
     const roomId = req.query.roomId || null;
-    const hours = Number(req.query.hours) || 24;
+    const hours = req.query.hours === undefined ? null : Number(req.query.hours);
+    const from = parseDateOrNull(req.query.from);
+    const to = parseDateOrNull(req.query.to);
 
     const alerts = await thresholdService.getRecentAlerts({
       limit,
       roomId,
-      hours
+      hours,
+      from,
+      to
     });
 
     res.json({
@@ -119,10 +147,36 @@ async function deleteAlert(req, res) {
   }
 }
 
+/**
+ * POST /api/environment/alerts - Lưu alert ngay lập tức
+ * Body: { alertType, roomId, metadata }
+ */
+async function createAlert(req, res) {
+  try {
+    const { alertType, roomId = null, metadata = {} } = req.body;
+
+    if (!alertType) {
+      return res.status(400).json({ error: "alertType is required" });
+    }
+
+    const result = await thresholdService.createAlert({
+      alertType,
+      roomId,
+      metadata
+    });
+
+    res.status(201).json({ data: result, message: "Alert saved" });
+  } catch (err) {
+    logger.error({ err }, "Failed to create alert");
+    res.status(500).json({ error: "Failed to create alert" });
+  }
+}
+
 module.exports = {
   listThresholds,
   getThreshold,
   setThreshold,
   listAlerts,
-  deleteAlert
+  deleteAlert,
+  createAlert
 };

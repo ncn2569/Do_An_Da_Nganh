@@ -2,7 +2,6 @@
 
 const { connectMqtt } = require("../config/mqtt");
 const logger = require("../utils/logger");
-const ruleEngine = require("../services/ruleEngine.service");
 const environmentService = require("../services/environment.service");
 
 const METRIC_ALIASES = {
@@ -233,10 +232,6 @@ function initMqtt({ broadcast }) {
     } catch (err) {
       logger.error({ err, telemetry }, "Failed to save telemetry");
     }
-
-    ruleEngine.evaluateReading(telemetry).catch((err) => {
-      logger.error({ err }, "Rule engine failed");
-    });
 
     if (typeof broadcast === "function") {
       try {

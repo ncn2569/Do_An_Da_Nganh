@@ -74,22 +74,26 @@ async function checkThreshold(metricName, value) {
   }
 
   const numValue = Number(value);
+  const min = Number.isFinite(Number(config?.min)) ? Number(config.min) : null;
+  const max = Number.isFinite(Number(config?.max)) ? Number(config.max) : null;
 
-  if (typeof config.min === "number" && numValue < config.min) {
+  if (min !== null && numValue < min) {
     return {
       triggered: true,
-      reason: `${metricName} too low (${numValue} < ${config.min})`
+      reason: `${metricName} too low (${numValue} < ${min})`,
+      bounds: { min, max }
     };
   }
 
-  if (typeof config.max === "number" && numValue > config.max) {
+  if (max !== null && numValue > max) {
     return {
       triggered: true,
-      reason: `${metricName} too high (${numValue} > ${config.max})`
+      reason: `${metricName} too high (${numValue} > ${max})`,
+      bounds: { min, max }
     };
   }
 
-  return { triggered: false, reason: "within range" };
+  return { triggered: false, reason: "within range", bounds: { min, max } };
 }
 
 /**
@@ -116,15 +120,23 @@ async function createAlert({ alertType, roomId = null, metadata = {} }) {
 /**
  * Lấy alerts gần đây
  */
-async function getRecentAlerts({ limit = 50, roomId = null, hours = 24 } = {}) {
+async function getRecentAlerts({ limit = 50, roomId = null, hours = null, from = null, to = null } = {}) {
   try {
-    const since = new Date(Date.now() - hours * 3600000);
+    const where = {
+      ...(roomId && { r_id: roomId })
+    };
+
+    if (from || to) {
+      where.time = {
+        ...(from && { gte: from }),
+        ...(to && { lte: to })
+      };
+    } else if (typeof hours === "number" && Number.isFinite(hours) && hours > 0) {
+      where.time = { gte: new Date(Date.now() - hours * 3600000) };
+    }
 
     const alerts = await prisma.alert.findMany({
-      where: {
-        ...(roomId && { r_id: roomId }),
-        time: { gte: since }
-      },
+      where,
       take: limit,
       orderBy: { time: "desc" },
       include: { rooms: true }

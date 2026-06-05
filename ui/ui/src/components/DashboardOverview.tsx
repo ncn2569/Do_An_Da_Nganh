@@ -6,6 +6,7 @@ import {
   Shield,
   Zap,
   AlertTriangle,
+  Flame,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
@@ -56,6 +57,18 @@ interface DeviceHistoryAction {
   action: string;
   userName: string;
   timestamp: string;
+}
+
+interface EnvironmentAlert {
+  a_id: string;
+  a_type: string;
+  metadata?: {
+    reason?: string;
+    value?: number | null;
+    timestamp?: string;
+    [key: string]: any;
+  } | null;
+  time: string;
 }
 
 type RangeOption = '1d' | '3d' | '1w' | '1m';
